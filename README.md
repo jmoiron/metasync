@@ -133,5 +133,5 @@ target photos to click on a location for that photo. If you don't have any phone
 photos available, but a session or a specific photo was taken from a well known
 location (eg. a landmark), you can use this to set it manually.
 
-Up until this point, _no changes_ have been ade to your photos. To apply the
+Up until this point, _no changes_ have been made to your photos. To apply the
 changes to the files on disk, you can click the red "save" button.
