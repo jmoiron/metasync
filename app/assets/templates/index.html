@@ -1,0 +1,314 @@
+<div class="app-shell">
+    <header class="topbar">
+        <div class="title-row">
+            <h1>metasync</h1>
+            <div class="topbar-actions">
+                <button class="controls-toggle" id="controls-toggle" type="button" aria-expanded="false">
+                    Load Paths
+                </button>
+                <button class="controls-toggle" id="sync-tools-toggle" type="button" aria-expanded="true">
+                    Sync Tools
+                </button>
+            <button class="theme-toggle-nav" id="theme-toggle" title="toggle theme" type="button">
+                <span class="theme-icon theme-sun" aria-hidden="true">Light</span>
+                <span class="theme-icon theme-moon" aria-hidden="true">Dark</span>
+                <span class="theme-toggle-pill"></span>
+            </button>
+            </div>
+        </div>
+        <form class="load-form is-collapsed" id="load-form" action="/" method="get">
+            <label>
+                <span>Target photos</span>
+                <input type="text" name="target" placeholder="/path/to/target/photos" value="{{.page.TargetPath}}">
+            </label>
+            <label>
+                <span>Reference photos</span>
+                <input type="text" name="ref" placeholder="/path/to/reference/photos" value="{{.page.ReferencePath}}">
+            </label>
+            <div class="load-actions">
+                <button type="submit">Load</button>
+                <label class="toggle">
+                    <input type="checkbox" name="recursive" value="1"{{if .page.Recursive}} checked{{end}}>
+                    <span>Recursive</span>
+                </label>
+                <label class="toggle">
+                    <input type="checkbox" name="gps_view" disabled>
+                    <span>GPS view</span>
+                </label>
+            </div>
+        </form>
+        <div class="sync-tools" id="sync-tools">
+            <div class="sync-global-row">
+                <label>
+                    <span>Scope</span>
+                    <select id="scope">
+                        <option value="global">Global</option>
+                        <option value="session">Session</option>
+                        <option value="image">Image</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Group by</span>
+                    <select id="grouping-mode">
+                        <option value="day">Day</option>
+                        <option value="hour">Hour</option>
+                        <option value="session" selected>Session</option>
+                    </select>
+                </label>
+                <label class="session-minutes-wrap">
+                    <span>Session (min)</span>
+                    <input type="number" id="session-minutes" min="1" value="5">
+                </label>
+                <div class="lens-controls">
+                    <label class="toggle">
+                        <input type="checkbox" id="lens-unsaved" checked>
+                        <span>Unsaved</span>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" id="lens-missing-gps" checked>
+                        <span>Missing GPS</span>
+                    </label>
+                </div>
+            </div>
+            <div class="sync-columns">
+                <div class="sync-col">
+                    <fieldset class="sync-fieldset">
+                        <legend>Time</legend>
+                        <div class="sync-time-actions">
+                            <button type="button" class="sync-btn" id="add-sync-pair">Add Pair</button>
+                            <button type="button" class="sync-btn secondary" id="clear-sync-pairs">Clear Pairs</button>
+                        </div>
+                        <div class="sync-pairs" id="sync-pairs"></div>
+                        <div class="sync-actions">
+                        </div>
+                    </fieldset>
+                </div>
+                <div class="sync-col">
+                    <fieldset class="sync-fieldset">
+                        <legend>GPS</legend>
+                        <div class="gps-controls">
+                            <label>
+                                <span>Strategy</span>
+                                <select id="gps-strategy">
+                                    <option value="closest">Closest reference timestamp</option>
+                                    <option value="interpolate">Interpolated between straddling refs</option>
+                                </select>
+                            </label>
+                            <label>
+                                <span>Cutoff (min)</span>
+                                <input type="number" id="gps-cutoff-minutes" min="1" value="30">
+                            </label>
+                        </div>
+                        <div class="sync-actions">
+                            <button type="button" class="sync-btn secondary" id="gps-from-reference">From Ref Image</button>
+                            <button type="button" class="sync-btn secondary" id="gps-from-prev-target">From Prev Target</button>
+                            <button type="button" class="sync-btn secondary" id="gps-from-map">From Map</button>
+                        </div>
+                    </fieldset>
+                </div>
+            </div>
+            <div class="sync-save-row">
+                <div class="sync-status" id="sync-status">No sync pairs</div>
+                <div class="sync-save-actions">
+                    <button type="button" class="sync-btn" id="preview-all">Apply</button>
+                    <button type="button" class="sync-btn danger" id="apply-sync" hidden>Save to Files</button>
+                </div>
+            </div>
+            <div class="apply-results" id="apply-results" hidden>
+                <div class="apply-results-head">
+                    <strong>Apply Results</strong>
+                    <button type="button" class="sync-pair-remove" id="dismiss-apply-results" aria-label="Dismiss results">x</button>
+                </div>
+                <div class="apply-results-body" id="apply-results-body"></div>
+            </div>
+        </div>
+    </header>
+
+    <main class="workspace" data-role="workspace">
+        <section class="pane" data-side="left">
+            <div class="pane-header">
+                <h2>Targets</h2>
+                <div class="pane-summary">{{.page.TargetSummary}}</div>
+            </div>
+            <div class="timeline">
+                <div class="thumb-grid">
+                    {{if .page.TargetError}}
+                    <div class="empty-state error">{{.page.TargetError}}</div>
+                    {{else if .page.TargetPhotos}}
+                    {{range .page.TargetPhotos}}
+                    <div class="lens-wrap lens-unsaved" data-lens-wrap="unsaved">
+                    <div class="lens-wrap lens-missing-gps" data-lens-wrap="missing-gps">
+                    <div
+                        class="thumb photo-card"
+                        data-photo-id="{{.ID}}"
+                        data-side="{{.Side}}"
+                        data-basename="{{.BaseName}}"
+                        data-path="{{.Path}}"
+                        data-relative-path="{{.RelativePath}}"
+                        data-size="{{.Size}}"
+                        data-modtime="{{.ModTime.Format "2006-01-02 15:04:05"}}"
+                        data-resolution="{{.Exif.Resolution}}"
+                        data-exif-time="{{.Exif.TimeDisplay}}"
+                        data-base-exif-time="{{.Exif.TimeDisplay}}"
+                        data-exif-gps="{{.Exif.GPSDisplay}}"
+                        data-base-exif-gps="{{.Exif.GPSDisplay}}"
+                        data-gps-lat="{{.Exif.GPSLatitudeAttr}}"
+                        data-gps-lon="{{.Exif.GPSLongitudeAttr}}"
+                        data-base-gps-lat="{{.Exif.GPSLatitudeAttr}}"
+                        data-base-gps-lon="{{.Exif.GPSLongitudeAttr}}"
+                        data-aperture="{{.Exif.ApertureDisplay}}"
+                        data-exposure="{{.Exif.ExposureDisplay}}"
+                        data-focal-length="{{.Exif.FocalLengthDisplay}}"
+                        data-iso="{{.Exif.ISODisplay}}"
+                        data-metering-mode="{{.Exif.MeteringModeDisplay}}"
+                        data-camera-model="{{.Exif.CameraModelDisplay}}"
+                    >
+                        {{if .ThumbnailURL}}
+                        <img class="thumb-image" src="{{.ThumbnailURL}}" alt="{{.BaseName}}" loading="lazy">
+                        {{end}}
+                        <span class="thumb-gps-adjusted">GPS adjusted</span>
+                        <span class="thumb-title">{{.BaseName}}</span>
+                    </div>
+                    </div>
+                    </div>
+                    {{end}}
+                    {{else}}
+                    <div class="empty-state">Choose a target directory to load images.</div>
+                    {{end}}
+                </div>
+            </div>
+            <div class="metadata-panel">
+                <div class="metadata-toggle">
+                    <button type="button" class="metadata-toggle-btn is-active" data-mode="exif">Exif</button>
+                    <button type="button" class="metadata-toggle-btn" data-mode="map">Map</button>
+                </div>
+                <div class="metadata-layout">
+                    <div class="metadata-column">
+                        <table class="metadata-table">
+                            <tbody>
+                                <tr><th>Filename</th><td data-field="basename">none selected</td></tr>
+                                <tr><th>Modified</th><td data-field="modtime">n/a</td></tr>
+                                <tr><th>Size</th><td data-field="size">n/a</td></tr>
+                                <tr><th>Resolution</th><td data-field="resolution">n/a</td></tr>
+                                <tr><th>EXIF time</th><td data-field="exif-time">n/a</td></tr>
+                                <tr><th>EXIF GPS</th><td data-field="exif-gps">n/a</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="metadata-column metadata-secondary">
+                        <div class="metadata-secondary-panel is-active" data-panel="exif">
+                            <table class="metadata-table">
+                                <tbody>
+                                    <tr><th>Camera</th><td data-field="camera-model">n/a</td></tr>
+                                    <tr><th>ISO</th><td data-field="iso">n/a</td></tr>
+                                    <tr><th>Aperture</th><td data-field="aperture">n/a</td></tr>
+                                    <tr><th>Exposure</th><td data-field="exposure">n/a</td></tr>
+                                    <tr><th>Focal len</th><td data-field="focal-length">n/a</td></tr>
+                                    <tr><th>Metering</th><td data-field="metering-mode">n/a</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="metadata-secondary-panel" data-panel="map">
+                            <div class="map-panel">
+                                <div class="map-canvas" data-map-canvas></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="pane" data-side="right">
+            <div class="pane-header">
+                <h2>References</h2>
+                <div class="pane-summary">{{.page.ReferenceSummary}}</div>
+            </div>
+            <div class="timeline">
+                <div class="thumb-grid">
+                    {{if .page.ReferenceError}}
+                    <div class="empty-state error">{{.page.ReferenceError}}</div>
+                    {{else if .page.ReferencePhotos}}
+                    {{range .page.ReferencePhotos}}
+                    <div class="lens-wrap lens-unsaved" data-lens-wrap="unsaved">
+                    <div class="lens-wrap lens-missing-gps" data-lens-wrap="missing-gps">
+                    <div
+                        class="thumb photo-card"
+                        data-photo-id="{{.ID}}"
+                        data-side="{{.Side}}"
+                        data-basename="{{.BaseName}}"
+                        data-path="{{.Path}}"
+                        data-relative-path="{{.RelativePath}}"
+                        data-size="{{.Size}}"
+                        data-modtime="{{.ModTime.Format "2006-01-02 15:04:05"}}"
+                        data-resolution="{{.Exif.Resolution}}"
+                        data-exif-time="{{.Exif.TimeDisplay}}"
+                        data-base-exif-time="{{.Exif.TimeDisplay}}"
+                        data-exif-gps="{{.Exif.GPSDisplay}}"
+                        data-base-exif-gps="{{.Exif.GPSDisplay}}"
+                        data-gps-lat="{{.Exif.GPSLatitudeAttr}}"
+                        data-gps-lon="{{.Exif.GPSLongitudeAttr}}"
+                        data-base-gps-lat="{{.Exif.GPSLatitudeAttr}}"
+                        data-base-gps-lon="{{.Exif.GPSLongitudeAttr}}"
+                        data-aperture="{{.Exif.ApertureDisplay}}"
+                        data-exposure="{{.Exif.ExposureDisplay}}"
+                        data-focal-length="{{.Exif.FocalLengthDisplay}}"
+                        data-iso="{{.Exif.ISODisplay}}"
+                        data-metering-mode="{{.Exif.MeteringModeDisplay}}"
+                        data-camera-model="{{.Exif.CameraModelDisplay}}"
+                    >
+                        {{if .ThumbnailURL}}
+                        <img class="thumb-image" src="{{.ThumbnailURL}}" alt="{{.BaseName}}" loading="lazy">
+                        {{end}}
+                        <span class="thumb-gps-adjusted">GPS adjusted</span>
+                        <span class="thumb-title">{{.BaseName}}</span>
+                    </div>
+                    </div>
+                    </div>
+                    {{end}}
+                    {{else}}
+                    <div class="empty-state">Choose a reference directory to load images.</div>
+                    {{end}}
+                </div>
+            </div>
+            <div class="metadata-panel">
+                <div class="metadata-toggle">
+                    <button type="button" class="metadata-toggle-btn is-active" data-mode="exif">Exif</button>
+                    <button type="button" class="metadata-toggle-btn" data-mode="map">Map</button>
+                </div>
+                <div class="metadata-layout">
+                    <div class="metadata-column">
+                        <table class="metadata-table">
+                            <tbody>
+                                <tr><th>Filename</th><td data-field="basename">none selected</td></tr>
+                                <tr><th>Modified</th><td data-field="modtime">n/a</td></tr>
+                                <tr><th>Size</th><td data-field="size">n/a</td></tr>
+                                <tr><th>Resolution</th><td data-field="resolution">n/a</td></tr>
+                                <tr><th>EXIF time</th><td data-field="exif-time">n/a</td></tr>
+                                <tr><th>EXIF GPS</th><td data-field="exif-gps">n/a</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="metadata-column metadata-secondary">
+                        <div class="metadata-secondary-panel is-active" data-panel="exif">
+                            <table class="metadata-table">
+                                <tbody>
+                                    <tr><th>Camera</th><td data-field="camera-model">n/a</td></tr>
+                                    <tr><th>ISO</th><td data-field="iso">n/a</td></tr>
+                                    <tr><th>Aperture</th><td data-field="aperture">n/a</td></tr>
+                                    <tr><th>Exposure</th><td data-field="exposure">n/a</td></tr>
+                                    <tr><th>Focal len</th><td data-field="focal-length">n/a</td></tr>
+                                    <tr><th>Metering</th><td data-field="metering-mode">n/a</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="metadata-secondary-panel" data-panel="map">
+                            <div class="map-panel">
+                                <div class="map-canvas" data-map-canvas></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+</div>

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>
+        (function() {
+            var t = localStorage.getItem('theme') || 'light';
+            if (t === 'dark') document.documentElement.classList.add('dark');
+        })();
+    </script>
+    <title>{{.title}}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/vendor/css/leaflet.css">
+    <script src="/static/vendor/js/jquery.js"></script>
+    <script src="/static/vendor/js/leaflet.js"></script>
+    <script src="/static/js/utils.js" defer></script>
+    <script src="/static/js/app.js" defer></script>
+</head>
+<body>
+    {{.body}}
+</body>
+</html>
