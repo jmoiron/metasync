@@ -509,10 +509,25 @@ a:hover {
     padding: 0.2rem 0.15rem;
 }
 
+.timeline-group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.timeline-group-meta {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+}
+
 .timeline-group-title {
     border: none;
     background: transparent;
-    width: 100%;
+    width: auto;
     text-align: left;
     cursor: pointer;
     font-size: 0.78rem;
@@ -527,8 +542,36 @@ a:hover {
     margin-right: 0.35rem;
 }
 
+.timeline-group-title::after {
+    content: '·';
+    margin-left: 0.05rem;
+    color: var(--muted);
+}
+
 .timeline-group.is-collapsed .timeline-group-title::before {
     content: '▸';
+}
+
+.timeline-group-jump {
+    color: var(--link);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    white-space: nowrap;
+    text-decoration: none;
+}
+
+.timeline-group-jump:hover {
+    color: var(--accent);
+}
+
+.timeline-group-count {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    white-space: nowrap;
 }
 
 .timeline-group.is-collapsed .thumb-grid {

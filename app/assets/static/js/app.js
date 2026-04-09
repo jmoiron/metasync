@@ -246,6 +246,15 @@ $(function() {
             $title.attr('aria-expanded', next ? 'false' : 'true');
             $title.closest('.timeline-group').toggleClass('is-collapsed', next);
         });
+        $workspace.on('click', '.timeline-group-jump', function(evt) {
+            evt.preventDefault();
+            evt.stopPropagation();
+            var targetMs = Number($(this).attr('data-target-ms'));
+            if (!Number.isFinite(targetMs)) {
+                return;
+            }
+            selectClosestReferenceForTimestamp(targetMs);
+        });
     }
 
     function bindLensControls() {
@@ -844,13 +853,24 @@ $(function() {
             var $group = $('<div class="timeline-group"></div>');
             var groupKey = pane.side + '|' + mode + '|' + group.key;
             var collapsed = !!collapsedGroups[groupKey];
-            var title = group.title + ' (' + group.cards.length + ')';
+            var $header = $('<div class="timeline-group-header"></div>');
+            var $left = $('<div class="timeline-group-meta"></div>');
             var $title = $('<button type="button" class="timeline-group-title"></button>');
+            var label = group.title;
             $title.attr('data-group-key', groupKey);
             $title.attr('data-collapsed', collapsed ? '1' : '0');
             $title.attr('aria-expanded', collapsed ? 'false' : 'true');
-            $title.text(title);
-            $group.append($title);
+            $title.text(label);
+            $left.append($title);
+            if (Number.isFinite(group.anchorMs)) {
+                var $jump = $('<a href="#" class="timeline-group-jump"></a>');
+                $jump.attr('data-target-ms', String(group.anchorMs));
+                $jump.text(formatGroupDate(group.anchorMs));
+                $left.append($jump);
+            }
+            $header.append($left);
+            $header.append($('<div class="timeline-group-count"></div>').text(group.cards.length + ' image' + (group.cards.length === 1 ? '' : 's')));
+            $group.append($header);
 
             var $grid = $('<div class="thumb-grid"></div>');
             group.cards.forEach(function(info) {
@@ -896,7 +916,8 @@ $(function() {
                 if (!current || ms-current.lastMs > threshold) {
                     current = {
                         key: 'session:' + ms,
-                        title: 'Session · ' + formatGroupDate(ms),
+                        title: 'Session',
+                        anchorMs: ms,
                         lastMs: ms,
                         cards: []
                     };
@@ -916,7 +937,8 @@ $(function() {
                 if (!byKey[key]) {
                     byKey[key] = {
                         key: key,
-                        title: titleForGroup(mode, ms),
+                        title: modeLabel(mode),
+                        anchorMs: groupSortTime(mode, ms),
                         sortMs: groupSortTime(mode, ms),
                         cards: []
                     };
@@ -933,6 +955,49 @@ $(function() {
             groups.push(noTime);
         }
         return groups;
+    }
+
+    function modeLabel(mode) {
+        if (mode === 'day') {
+            return 'Day';
+        }
+        if (mode === 'hour') {
+            return 'Hour';
+        }
+        if (mode === 'session') {
+            return 'Session';
+        }
+        return mode;
+    }
+
+    function selectClosestReferenceForTimestamp(targetMs) {
+        if (!Number.isFinite(targetMs) || !panes.reference || panes.reference.cards.length === 0) {
+            return;
+        }
+        var best = null;
+        panes.reference.cards.forEach(function(info) {
+            var ms = currentCardExifMs(info.$el);
+            if (!Number.isFinite(ms)) {
+                return;
+            }
+            var diff = Math.abs(ms - targetMs);
+            if (!best || diff < best.diff || (diff === best.diff && info.order < best.info.order)) {
+                best = { info: info, diff: diff };
+            }
+        });
+        if (!best || !best.info || !best.info.$el) {
+            return;
+        }
+        var $card = best.info.$el;
+        panes.reference.$pane.find('.photo-card').removeClass('is-selected');
+        $card.addClass('is-selected');
+        updatePaneMetadataFromCard(panes.reference.$pane, $card);
+        syncSelectionOutlineState();
+        syncPaneMap(panes.reference.$pane);
+        var cardEl = $card.get(0);
+        if (cardEl && typeof cardEl.scrollIntoView === 'function') {
+            cardEl.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+        }
     }
 
     function applyLensHighlightState() {
