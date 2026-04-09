@@ -20,7 +20,7 @@ type Extractor struct {
 }
 
 const (
-	defaultExtractChunkSize = 64
+	defaultExtractChunkSize = 4
 	defaultExtractWorkers   = 4
 )
 
@@ -41,6 +41,16 @@ type WriteRequest struct {
 	Time         *time.Time
 	GPSLatitude  *float64
 	GPSLongitude *float64
+}
+
+type FileWrite struct {
+	Path string
+	Req  WriteRequest
+}
+
+type WriteResult struct {
+	Path string
+	Err  error
 }
 
 func Configure(workers, batchSize int) {
@@ -258,6 +268,114 @@ func (e *Extractor) Write(path string, req WriteRequest) error {
 	items := []exiftool.FileMetadata{md}
 	e.et.WriteMetadata(items)
 	return items[0].Err
+}
+
+func (e *Extractor) WriteAll(changes []FileWrite) []WriteResult {
+	if e == nil || e.et == nil || len(changes) == 0 {
+		return nil
+	}
+	if extractWorkers <= 1 || len(changes) <= 1 {
+		return e.writeAllSingle(changes)
+	}
+	return e.writeAllParallel(changes)
+}
+
+func (e *Extractor) writeAllSingle(changes []FileWrite) []WriteResult {
+	results := make([]WriteResult, len(changes))
+	start := time.Now()
+	for i, change := range changes {
+		results[i] = WriteResult{
+			Path: change.Path,
+			Err:  e.Write(change.Path, change.Req),
+		}
+		logWriteProgress(start, i+1, len(changes))
+	}
+	return results
+}
+
+func (e *Extractor) writeAllParallel(changes []FileWrite) []WriteResult {
+	type writeJob struct {
+		index  int
+		change FileWrite
+	}
+	type writeProgress struct {
+		index  int
+		result WriteResult
+	}
+
+	results := make([]WriteResult, len(changes))
+	pool := spool.NewPool(extractWorkers)
+	jobch := make(chan writeJob, extractWorkers)
+	progress := make(chan writeProgress, extractWorkers)
+
+	pool.Do(func() {
+		et, err := newExiftool()
+		if err != nil {
+			for job := range jobch {
+				progress <- writeProgress{
+					index: job.index,
+					result: WriteResult{
+						Path: job.change.Path,
+						Err:  fmt.Errorf("exiftool init failed: %w", err),
+					},
+				}
+				pool.Err(err)
+			}
+			return
+		}
+		worker := &Extractor{et: et}
+		defer worker.Close()
+
+		for job := range jobch {
+			progress <- writeProgress{
+				index: job.index,
+				result: WriteResult{
+					Path: job.change.Path,
+					Err:  worker.Write(job.change.Path, job.change.Req),
+				},
+			}
+		}
+	})
+
+	go func() {
+		for i, change := range changes {
+			jobch <- writeJob{index: i, change: change}
+		}
+		close(jobch)
+	}()
+
+	start := time.Now()
+	for done := range len(changes) {
+		item := <-progress
+		results[item.index] = item.result
+		logWriteProgress(start, done+1, len(changes))
+	}
+
+	if err := errors.Join(pool.Wait()...); err != nil {
+		slog.Warn("parallel exif apply encountered errors", "err", err)
+	}
+	return results
+}
+
+func logWriteProgress(start time.Time, completed, total int) {
+	if completed%10 != 0 && completed != total {
+		return
+	}
+	elapsed := time.Since(start)
+	rate := float64(completed) / elapsed.Seconds()
+	remainingCount := total - completed
+	var remaining time.Duration
+	if rate > 0 {
+		remaining = time.Duration(float64(remainingCount)/rate) * time.Second
+	}
+	slog.Info(
+		"apply progress",
+		"done", completed,
+		"total", total,
+		"images_per_sec", fmt.Sprintf("%.2f", rate),
+		"elapsed", elapsed.Round(time.Second).String(),
+		"remaining", remaining.Round(time.Second).String(),
+	)
 }
 
 func normalize(file exiftool.FileMetadata) model.ExifData {

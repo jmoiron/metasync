@@ -20,7 +20,7 @@ import (
 //go:embed assets/templates/*.html
 var templates embed.FS
 
-//go:embed assets/static/*.css assets/static/js/*.js assets/static/fonts/* assets/static/vendor
+//go:embed assets/static/*.css assets/static/js/*.js assets/static/fonts/* assets/static/vendor assets/static/fa/*
 var static embed.FS
 
 type Config struct {

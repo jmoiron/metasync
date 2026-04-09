@@ -3,43 +3,40 @@
         <div class="title-row">
             <h1>metasync</h1>
             <div class="topbar-actions">
-                <button class="controls-toggle" id="controls-toggle" type="button" aria-expanded="false">
-                    Load Paths
+                <button class="menu-link" id="scope-toggle" type="button" data-menu-target="scope-menu" aria-expanded="false">
+                    <span class="fa-solid fa-crosshairs" aria-hidden="true"></span>
+                    <span>Scope</span>
                 </button>
-                <button class="controls-toggle" id="sync-tools-toggle" type="button" aria-expanded="true">
-                    Sync Tools
+                <button class="menu-link" id="group-toggle" type="button" data-menu-target="group-menu" aria-expanded="false">
+                    <span class="fa-regular fa-object-group" aria-hidden="true"></span>
+                    <span>Group By</span>
                 </button>
-            <button class="theme-toggle-nav" id="theme-toggle" title="toggle theme" type="button">
-                <span class="theme-icon theme-sun" aria-hidden="true">Light</span>
-                <span class="theme-icon theme-moon" aria-hidden="true">Dark</span>
-                <span class="theme-toggle-pill"></span>
-            </button>
+                <button class="menu-link" id="view-toggle" type="button" data-menu-target="view-menu" aria-expanded="false">
+                    <span class="fa-solid fa-magnifying-glass" aria-hidden="true"></span>
+                    <span>View</span>
+                </button>
+                <button class="menu-link" id="time-toggle" type="button" data-menu-target="time-menu" aria-expanded="false">
+                    <span class="fa-regular fa-clock" aria-hidden="true"></span>
+                    <span>Time</span>
+                </button>
+                <button class="menu-link" id="gps-toggle" type="button" data-menu-target="gps-menu" aria-expanded="false">
+                    <span class="fa-solid fa-map-location-dot" aria-hidden="true"></span>
+                    <span>GPS</span>
+                </button>
+                <button type="button" class="sync-btn" id="apply-sync" disabled>
+                    <span class="fa-solid fa-floppy-disk" aria-hidden="true"></span>
+                    <span>Save</span>
+                </button>
+                <button class="theme-toggle-nav" id="theme-toggle" title="toggle theme" type="button">
+                    <span class="theme-icon theme-sun" aria-hidden="true">Light</span>
+                    <span class="theme-icon theme-moon" aria-hidden="true">Dark</span>
+                    <span class="theme-toggle-pill"></span>
+                </button>
             </div>
         </div>
-        <form class="load-form is-collapsed" id="load-form" action="/" method="get">
-            <label>
-                <span>Target photos</span>
-                <input type="text" name="target" placeholder="/path/to/target/photos" value="{{.page.TargetPath}}">
-            </label>
-            <label>
-                <span>Reference photos</span>
-                <input type="text" name="ref" placeholder="/path/to/reference/photos" value="{{.page.ReferencePath}}">
-            </label>
-            <div class="load-actions">
-                <button type="submit">Load</button>
-                <label class="toggle">
-                    <input type="checkbox" name="recursive" value="1"{{if .page.Recursive}} checked{{end}}>
-                    <span>Recursive</span>
-                </label>
-                <label class="toggle">
-                    <input type="checkbox" name="gps_view" disabled>
-                    <span>GPS view</span>
-                </label>
-            </div>
-        </form>
-        <div class="sync-tools" id="sync-tools">
-            <div class="sync-global-row">
-                <label>
+        <div class="header-menus" id="header-menus">
+            <div class="header-dropdown header-dropdown-menu" id="scope-menu" hidden>
+                <label class="header-dropdown-field">
                     <span>Scope</span>
                     <select id="scope">
                         <option value="global">Global</option>
@@ -47,7 +44,9 @@
                         <option value="image">Image</option>
                     </select>
                 </label>
-                <label>
+            </div>
+            <div class="header-dropdown header-dropdown-menu" id="group-menu" hidden>
+                <label class="header-dropdown-field">
                     <span>Group by</span>
                     <select id="grouping-mode">
                         <option value="day">Day</option>
@@ -55,23 +54,46 @@
                         <option value="session" selected>Session</option>
                     </select>
                 </label>
-                <label class="session-minutes-wrap">
+                <label class="header-dropdown-field session-minutes-wrap">
                     <span>Session (min)</span>
                     <input type="number" id="session-minutes" min="1" value="5">
                 </label>
-                <div class="lens-controls">
-                    <label class="toggle">
-                        <input type="checkbox" id="lens-unsaved" checked>
-                        <span>Unsaved</span>
-                    </label>
-                    <label class="toggle">
-                        <input type="checkbox" id="lens-missing-gps" checked>
-                        <span>Missing GPS</span>
-                    </label>
+            </div>
+            <div class="header-panel header-dropdown-menu" id="view-menu" hidden>
+                <div class="header-panel-section">
+                    <div class="header-panel-title">Lenses</div>
+                    <div class="lens-menu">
+                        <div class="lens-menu-row" data-lens="unsaved">
+                            <div class="lens-menu-label">
+                                <span>Unsaved</span>
+                            </div>
+                            <div class="lens-menu-actions">
+                                <button type="button" class="lens-icon-toggle" data-lens-action="highlight" data-lens="unsaved" aria-pressed="true" title="Highlight unsaved">
+                                    <span class="fa-solid fa-marker" aria-hidden="true"></span>
+                                </button>
+                                <button type="button" class="lens-icon-toggle" data-lens-action="hide" data-lens="unsaved" aria-pressed="false" title="Only show unsaved">
+                                    <span class="fa-solid fa-eye" aria-hidden="true"></span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="lens-menu-row" data-lens="missing-gps">
+                            <div class="lens-menu-label">
+                                <span>Missing GPS</span>
+                            </div>
+                            <div class="lens-menu-actions">
+                                <button type="button" class="lens-icon-toggle" data-lens-action="highlight" data-lens="missing-gps" aria-pressed="true" title="Highlight missing GPS">
+                                    <span class="fa-solid fa-marker" aria-hidden="true"></span>
+                                </button>
+                                <button type="button" class="lens-icon-toggle" data-lens-action="hide" data-lens="missing-gps" aria-pressed="false" title="Only show missing GPS">
+                                    <span class="fa-solid fa-eye" aria-hidden="true"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="sync-columns">
-                <div class="sync-col">
+            <div class="header-panel header-work-panel" id="work-menu" hidden>
+                <div class="sync-col" id="time-panel" hidden>
                     <fieldset class="sync-fieldset">
                         <legend>Time</legend>
                         <div class="sync-time-actions">
@@ -79,11 +101,13 @@
                             <button type="button" class="sync-btn secondary" id="clear-sync-pairs">Clear Pairs</button>
                         </div>
                         <div class="sync-pairs" id="sync-pairs"></div>
-                        <div class="sync-actions">
+                        <div class="sync-status" id="sync-status">No sync pairs</div>
+                        <div class="sync-save-actions sync-panel-actions">
+                            <button type="button" class="sync-btn" id="apply-time">Apply Time</button>
                         </div>
                     </fieldset>
                 </div>
-                <div class="sync-col">
+                <div class="sync-col" id="gps-panel" hidden>
                     <fieldset class="sync-fieldset">
                         <legend>GPS</legend>
                         <div class="gps-controls">
@@ -102,16 +126,13 @@
                         <div class="sync-actions">
                             <button type="button" class="sync-btn secondary" id="gps-from-reference">From Ref Image</button>
                             <button type="button" class="sync-btn secondary" id="gps-from-prev-target">From Prev Target</button>
+                            <button type="button" class="sync-btn secondary" id="gps-from-next-target">From Next Target</button>
                             <button type="button" class="sync-btn secondary" id="gps-from-map">From Map</button>
                         </div>
+                        <div class="sync-save-actions sync-panel-actions">
+                            <button type="button" class="sync-btn" id="apply-gps">Apply GPS</button>
+                        </div>
                     </fieldset>
-                </div>
-            </div>
-            <div class="sync-save-row">
-                <div class="sync-status" id="sync-status">No sync pairs</div>
-                <div class="sync-save-actions">
-                    <button type="button" class="sync-btn" id="preview-all">Apply</button>
-                    <button type="button" class="sync-btn danger" id="apply-sync" hidden>Save to Files</button>
                 </div>
             </div>
             <div class="apply-results" id="apply-results" hidden>
@@ -138,6 +159,7 @@
                     {{range .page.TargetPhotos}}
                     <div class="lens-wrap lens-unsaved" data-lens-wrap="unsaved">
                     <div class="lens-wrap lens-missing-gps" data-lens-wrap="missing-gps">
+                    <div class="lens-wrap lens-selected" data-lens-wrap="selected">
                     <div
                         class="thumb photo-card"
                         data-photo-id="{{.ID}}"
@@ -168,6 +190,7 @@
                         {{end}}
                         <span class="thumb-gps-adjusted">GPS adjusted</span>
                         <span class="thumb-title">{{.BaseName}}</span>
+                    </div>
                     </div>
                     </div>
                     </div>
@@ -231,6 +254,7 @@
                     {{range .page.ReferencePhotos}}
                     <div class="lens-wrap lens-unsaved" data-lens-wrap="unsaved">
                     <div class="lens-wrap lens-missing-gps" data-lens-wrap="missing-gps">
+                    <div class="lens-wrap lens-selected" data-lens-wrap="selected">
                     <div
                         class="thumb photo-card"
                         data-photo-id="{{.ID}}"
@@ -261,6 +285,7 @@
                         {{end}}
                         <span class="thumb-gps-adjusted">GPS adjusted</span>
                         <span class="thumb-title">{{.BaseName}}</span>
+                    </div>
                     </div>
                     </div>
                     </div>

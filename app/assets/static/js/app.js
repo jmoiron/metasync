@@ -10,6 +10,16 @@ $(function() {
     var gpsPreviewByTargetID = {};
     var mapPickMode = false;
     var collapsedGroups = {};
+    var activeHeaderMenu = '';
+    var workPanelState = {
+        time: false,
+        gps: false
+    };
+    var targetSelectionAnchorID = '';
+    var lensSettings = {
+        unsaved: { highlight: true, hide: false },
+        'missing-gps': { highlight: true, hide: false }
+    };
 
     var $workspace = $('[data-role="workspace"]');
     if ($workspace.length === 0) {
@@ -23,6 +33,7 @@ $(function() {
 
     applyTheme(localStorage.getItem('theme') || 'light');
     bindBasicControls();
+    bindHeaderMenus();
     bindPhotoSelection();
     bindMetadataToggle();
     bindSyncControls();
@@ -67,33 +78,60 @@ $(function() {
             localStorage.setItem('theme', next);
             applyTheme(next);
         });
+    }
 
-        $('#controls-toggle').on('click', function() {
-            var $button = $(this);
-            var $form = $('#load-form');
-            $form.toggleClass('is-collapsed');
-            $button.attr('aria-expanded', $form.hasClass('is-collapsed') ? 'false' : 'true');
+    function bindHeaderMenus() {
+        $('[data-menu-target]').on('click', function(evt) {
+            evt.stopPropagation();
+            var menuID = String($(this).attr('data-menu-target') || '');
+            if (menuID === 'time-menu' || menuID === 'gps-menu') {
+                toggleWorkPanel(menuID === 'time-menu' ? 'time' : 'gps');
+                return;
+            }
+            toggleHeaderMenu(menuID);
         });
 
-        $('#sync-tools-toggle').on('click', function() {
-            var $button = $(this);
-            var $tools = $('#sync-tools');
-            $tools.toggleClass('is-collapsed');
-            $button.attr('aria-expanded', $tools.hasClass('is-collapsed') ? 'false' : 'true');
+        $(document).on('click', function(evt) {
+            var $target = $(evt.target);
+            var inTopbarActions = $target.closest('.topbar-actions').length > 0;
+            var inFloatingMenu = $target.closest('.header-dropdown-menu').length > 0;
+            if (!inTopbarActions && !inFloatingMenu) {
+                closeFloatingMenus();
+            }
+        });
+
+        $(document).on('keydown', function(evt) {
+            if (evt.key === 'Escape') {
+                closeFloatingMenus();
+            }
+        });
+
+        $(window).on('resize', function() {
+            if (activeHeaderMenu) {
+                positionFloatingMenu(activeHeaderMenu);
+            }
         });
     }
 
     function bindPhotoSelection() {
-        $workspace.on('click', '.photo-card', function() {
+        $workspace.on('click', '.photo-card', function(evt) {
             var $card = $(this);
             var $pane = $card.closest('.pane');
 
-            $pane.find('.photo-card').removeClass('is-selected');
-            $card.addClass('is-selected');
+            if ($pane.is(panes.target.$pane) && String($('#scope').val() || 'global') === 'image') {
+                updateTargetImageScopeSelection($card, evt);
+            } else {
+                $pane.find('.photo-card').removeClass('is-selected is-selection-anchor');
+                $card.addClass('is-selected');
+                if ($pane.is(panes.target.$pane)) {
+                    setTargetSelectionAnchor($card);
+                }
+            }
             updatePaneMetadataFromCard($pane, $card);
             if ($pane.is(panes.target.$pane) && String($('#scope').val() || 'global') === 'session') {
                 renderGroupsForPane(panes.target);
             }
+            syncSelectionOutlineState();
             syncPaneMap($pane);
             updateReferenceNeighborHighlightForSelection();
         });
@@ -114,6 +152,9 @@ $(function() {
 
     function bindSyncControls() {
         $('#scope').on('change', function() {
+            if (String($(this).val() || 'global') !== 'image') {
+                collapseTargetSelectionToAnchor();
+            }
             renderGroups();
         });
 
@@ -145,16 +186,19 @@ $(function() {
             refreshSyncUI();
         });
 
-        $('#preview-all').on('click', function() {
+        $('#apply-time').on('click', function() {
+            if (syncPairs.length === 0) {
+                $('#sync-status').text('No sync pairs to apply.');
+                return;
+            }
             recomputeAdjustedTimes();
             applyTimePreview();
-            clearMapPickMode();
-            recomputeGPSPreview(true);
-            applyGPSPreview();
             renderGroups();
             refreshSyncUI();
             applyLensHighlightState();
             updateReferenceNeighborHighlightForSelection();
+            $('#sync-status').text('Applied time preview from ' + syncPairs.length + ' sync pair' + (syncPairs.length === 1 ? '' : 's') + '.');
+            closeHeaderMenus();
         });
         $('#gps-from-reference').on('click', function() {
             clearMapPickMode();
@@ -164,11 +208,28 @@ $(function() {
             clearMapPickMode();
             applyGPSFromPreviousTarget();
         });
+        $('#gps-from-next-target').on('click', function() {
+            clearMapPickMode();
+            applyGPSFromNextTarget();
+        });
         $('#gps-from-map').on('click', function() {
             beginMapGPSPick();
         });
+        $('#apply-gps').on('click', function() {
+            clearMapPickMode();
+            var changed = recomputeGPSPreview(false);
+            applyGPSPreview();
+            applyLensHighlightState();
+            updateReferenceNeighborHighlightForSelection();
+            if (changed) {
+                closeHeaderMenus();
+            }
+        });
 
         $('#apply-sync').on('click', function() {
+            if ($(this).prop('disabled')) {
+                return;
+            }
             applyChangesToFiles();
         });
 
@@ -188,7 +249,14 @@ $(function() {
     }
 
     function bindLensControls() {
-        $('#lens-unsaved, #lens-missing-gps').on('change', function() {
+        $('.lens-icon-toggle').on('click', function() {
+            var $button = $(this);
+            var lensName = String($button.attr('data-lens') || '');
+            var action = String($button.attr('data-lens-action') || '');
+            if (!lensSettings[lensName] || (action !== 'highlight' && action !== 'hide')) {
+                return;
+            }
+            lensSettings[lensName][action] = !lensSettings[lensName][action];
             applyLensHighlightState();
         });
         $('#dismiss-apply-results').on('click', function() {
@@ -196,8 +264,107 @@ $(function() {
         });
     }
 
+    function toggleHeaderMenu(menuID) {
+        if (!menuID) {
+            closeFloatingMenus();
+            return;
+        }
+        if (activeHeaderMenu === menuID) {
+            closeFloatingMenus();
+            return;
+        }
+        activeHeaderMenu = menuID;
+        closeFloatingMenus();
+        $('#' + menuID).prop('hidden', false).addClass('is-open');
+        $('[data-menu-target="' + menuID + '"]').addClass('is-active').attr('aria-expanded', 'true');
+        positionFloatingMenu(menuID);
+    }
+
+    function closeHeaderMenus() {
+        activeHeaderMenu = '';
+        workPanelState.time = false;
+        workPanelState.gps = false;
+        syncWorkPanelState();
+        closeFloatingMenus();
+    }
+
+    function closeFloatingMenus() {
+        activeHeaderMenu = '';
+        $('.header-dropdown-menu').prop('hidden', true).removeClass('is-open');
+        $('[data-menu-target="scope-menu"], [data-menu-target="group-menu"], [data-menu-target="view-menu"]').removeClass('is-active').attr('aria-expanded', 'false');
+    }
+
+    function toggleWorkPanel(panelName) {
+        if (panelName !== 'time' && panelName !== 'gps') {
+            return;
+        }
+        activeHeaderMenu = '';
+        closeFloatingMenus();
+
+        workPanelState[panelName] = !workPanelState[panelName];
+        syncWorkPanelState();
+    }
+
+    function syncWorkPanelState() {
+        var showTime = !!workPanelState.time;
+        var showGPS = !!workPanelState.gps;
+        var showDrawer = showTime || showGPS;
+        var $workMenu = $('#work-menu');
+
+        $workMenu.prop('hidden', !showDrawer).toggleClass('is-open', showDrawer);
+        $('#time-panel').prop('hidden', !showTime);
+        $('#gps-panel').prop('hidden', !showGPS);
+        $workMenu
+            .toggleClass('show-time', showTime)
+            .toggleClass('show-gps', showGPS)
+            .toggleClass('split-panels', showTime && showGPS);
+
+        $('[data-menu-target="time-menu"]')
+            .toggleClass('is-active', showTime)
+            .attr('aria-expanded', showTime ? 'true' : 'false');
+        $('[data-menu-target="gps-menu"]')
+            .toggleClass('is-active', showGPS)
+            .attr('aria-expanded', showGPS ? 'true' : 'false');
+    }
+
+    function positionFloatingMenu(menuID) {
+        var $menu = $('#' + menuID);
+        var $trigger = $('[data-menu-target="' + menuID + '"]').first();
+        var isFloating = $menu.hasClass('header-dropdown-menu');
+        if ($menu.length === 0) {
+            return;
+        }
+        if (!isFloating || $trigger.length === 0) {
+            $menu.css({ left: '', top: '', minWidth: '' });
+            return;
+        }
+
+        var $container = $('#header-menus');
+        var triggerOffset = $trigger.offset();
+        var containerOffset = $container.offset();
+        if (!triggerOffset || !containerOffset) {
+            return;
+        }
+        var left = triggerOffset.left - containerOffset.left;
+        var top = triggerOffset.top - containerOffset.top + $trigger.outerHeight() + 8;
+
+        $menu.css({
+            left: left + 'px',
+            top: top + 'px',
+            minWidth: Math.max($trigger.outerWidth(), 0) + 'px'
+        });
+
+        var containerWidth = $container.innerWidth();
+        var menuOuterWidth = $menu.outerWidth();
+        if (menuOuterWidth && containerWidth) {
+            left = triggerOffset.left - containerOffset.left + $trigger.outerWidth() - menuOuterWidth;
+            left = Math.max(0, Math.min(left, containerWidth - menuOuterWidth));
+            $menu.css('left', left + 'px');
+        }
+    }
+
     function addSyncPairFromSelection() {
-        var $target = selectedCardForPane(panes.target.$pane);
+        var $target = activeTargetCard();
         var $reference = selectedCardForPane(panes.reference.$pane);
         if ($target.length === 0 || $reference.length === 0) {
             $('#sync-status').text('Select one target and one reference image first.');
@@ -263,18 +430,21 @@ $(function() {
     }
 
     function recomputeGPSPreview(forceGlobal) {
-        gpsPreviewByTargetID = {};
-
         var scope = forceGlobal ? 'global' : String($('#scope').val() || 'global');
         var strategy = String($('#gps-strategy').val() || 'closest');
         var cutoffMin = Math.max(1, Number($('#gps-cutoff-minutes').val()) || 30);
         var cutoffMs = cutoffMin * 60 * 1000;
         var targetCards = targetCardsForScope(scope);
+        var previewCount = 0;
 
         if ((scope === 'image' || scope === 'session') && targetCards.length === 0) {
             $('#sync-status').text('Select a target image for image/session GPS preview scope.');
-            return;
+            return false;
         }
+
+        targetCards.forEach(function(info) {
+            delete gpsPreviewByTargetID[info.id];
+        });
 
         targetCards.forEach(function(info) {
             var curLat = parseFloat(info.$el.attr('data-gps-lat'));
@@ -301,8 +471,11 @@ $(function() {
 
             if (candidate) {
                 gpsPreviewByTargetID[info.id] = candidate;
+                previewCount += 1;
             }
         });
+        $('#sync-status').text('Applied GPS preview for ' + previewCount + ' target image' + (previewCount === 1 ? '' : 's') + '.');
+        return true;
     }
 
     function setPreviewGPSForScope(lat, lon, source) {
@@ -312,7 +485,6 @@ $(function() {
             $('#sync-status').text('Select a target image for image/session GPS preview scope.');
             return false;
         }
-        gpsPreviewByTargetID = {};
         targetCards.forEach(function(info) {
             gpsPreviewByTargetID[info.id] = { lat: lat, lon: lon, source: source || 'manual' };
         });
@@ -339,7 +511,7 @@ $(function() {
     }
 
     function applyGPSFromPreviousTarget() {
-        var $selectedTarget = selectedCardForPane(panes.target.$pane);
+        var $selectedTarget = activeTargetCard();
         if ($selectedTarget.length === 0) {
             $('#sync-status').text('Select a target image first.');
             return;
@@ -380,6 +552,48 @@ $(function() {
         $('#sync-status').text('No previous target image with GPS data found.');
     }
 
+    function applyGPSFromNextTarget() {
+        var $selectedTarget = activeTargetCard();
+        if ($selectedTarget.length === 0) {
+            $('#sync-status').text('Select a target image first.');
+            return;
+        }
+        var selectedID = String($selectedTarget.data('photoId') || '');
+        var selectedInfo = cardInfoByID(panes.target, selectedID);
+        if (!selectedInfo) {
+            $('#sync-status').text('Selected target image not found.');
+            return;
+        }
+
+        var sorted = panes.target.cards.slice().sort(function(a, b) {
+            return compareCardsByTimeThenOrder(currentTargetMs(a), currentTargetMs(b), a.order, b.order);
+        });
+        var selectedPos = -1;
+        for (var i = 0; i < sorted.length; i += 1) {
+            if (sorted[i].id === selectedID) {
+                selectedPos = i;
+                break;
+            }
+        }
+        if (selectedPos < 0 || selectedPos >= sorted.length - 1) {
+            $('#sync-status').text('No next target image available.');
+            return;
+        }
+
+        for (var j = selectedPos + 1; j < sorted.length; j += 1) {
+            var $candidate = sorted[j].$el;
+            var lat = parseFloat($candidate.attr('data-gps-lat'));
+            var lon = parseFloat($candidate.attr('data-gps-lon'));
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+                continue;
+            }
+            setPreviewGPSForScope(lat, lon, 'next-target');
+            return;
+        }
+
+        $('#sync-status').text('No next target image with GPS data found.');
+    }
+
     function beginMapGPSPick() {
         mapPickMode = true;
         $('#gps-from-map').addClass('is-armed');
@@ -401,7 +615,7 @@ $(function() {
             return panes.target.cards.slice();
         }
 
-        var $selected = selectedCardForPane(panes.target.$pane);
+        var $selected = activeTargetCard();
         if ($selected.length === 0) {
             return [];
         }
@@ -412,7 +626,7 @@ $(function() {
         }
 
         if (scope === 'image') {
-            return [selectedInfo];
+            return selectedTargetInfos();
         }
 
         var sessionMin = Math.max(1, Number($('#session-minutes').val()) || 5);
@@ -525,7 +739,7 @@ $(function() {
             }
         });
 
-        var $selectedTarget = selectedCardForPane(panes.target.$pane);
+        var $selectedTarget = activeTargetCard();
         if ($selectedTarget.length > 0) {
             updatePaneMetadataFromCard(panes.target.$pane, $selectedTarget);
             syncPaneMap(panes.target.$pane);
@@ -541,6 +755,18 @@ $(function() {
             var $card = info.$el;
             var preview = gpsPreviewByTargetID[info.id];
             if (!preview) {
+                var baseLat = normalizeCoordText($card.attr('data-base-gps-lat') || '');
+                var baseLon = normalizeCoordText($card.attr('data-base-gps-lon') || '');
+                if (baseLat !== '' && baseLon !== '') {
+                    $card.attr('data-gps-lat', baseLat);
+                    $card.attr('data-gps-lon', baseLon);
+                    $card.attr('data-exif-gps', baseLat + ', ' + baseLon);
+                } else {
+                    $card.attr('data-gps-lat', '');
+                    $card.attr('data-gps-lon', '');
+                    $card.attr('data-exif-gps', 'n/a');
+                }
+                $card.removeClass('has-gps-adjusted');
                 return;
             }
             var latText = formatCoord(preview.lat);
@@ -551,9 +777,10 @@ $(function() {
             $card.addClass('has-gps-adjusted');
         });
 
-        var $selectedTarget = selectedCardForPane(panes.target.$pane);
+        var $selectedTarget = activeTargetCard();
         if ($selectedTarget.length > 0) {
             updatePaneMetadataFromCard(panes.target.$pane, $selectedTarget);
+            syncPaneMap(panes.target.$pane);
         }
         var $selectedReference = selectedCardForPane(panes.reference.$pane);
         if ($selectedReference.length > 0) {
@@ -604,7 +831,7 @@ $(function() {
         var scope = String($('#scope').val() || 'global');
         var selectedTargetID = '';
         if (scope === 'session' && pane.side === 'target') {
-            var $selectedTarget = selectedCardForPane(panes.target.$pane);
+            var $selectedTarget = activeTargetCard();
             if ($selectedTarget.length > 0) {
                 selectedTargetID = String($selectedTarget.data('photoId') || '');
             }
@@ -709,24 +936,47 @@ $(function() {
     }
 
     function applyLensHighlightState() {
-        var unsavedActive = $('#lens-unsaved').is(':checked');
-        var missingActive = $('#lens-missing-gps').is(':checked');
-        $('body').toggleClass('lens-unsaved-active', unsavedActive);
-        $('body').toggleClass('lens-missing-gps-active', missingActive);
+        $('body')
+            .toggleClass('lens-unsaved-highlight-active', !!lensSettings.unsaved.highlight)
+            .toggleClass('lens-missing-gps-highlight-active', !!lensSettings['missing-gps'].highlight)
+            .toggleClass('lens-unsaved-hide-active', !!lensSettings.unsaved.hide)
+            .toggleClass('lens-missing-gps-hide-active', !!lensSettings['missing-gps'].hide);
+
+        $('.lens-icon-toggle').each(function() {
+            var $button = $(this);
+            var lensName = String($button.attr('data-lens') || '');
+            var action = String($button.attr('data-lens-action') || '');
+            var isActive = !!(lensSettings[lensName] && lensSettings[lensName][action]);
+            $button.attr('aria-pressed', isActive ? 'true' : 'false');
+            $button.toggleClass('is-active', isActive);
+        });
 
         allCards().forEach(function($card) {
             var hasUnsaved = cardHasUnsavedChanges($card);
             var missingGPS = cardMissingGPS($card);
-            cardLensWrap($card, 'unsaved').toggleClass('is-highlighted', hasUnsaved);
-            cardLensWrap($card, 'missing-gps').toggleClass('is-highlighted', missingGPS);
+            cardLensWrap($card, 'unsaved').toggleClass('is-highlighted', lensSettings.unsaved.highlight && hasUnsaved);
+            cardLensWrap($card, 'missing-gps').toggleClass('is-highlighted', lensSettings['missing-gps'].highlight && missingGPS);
+
+            var isTargetCard = String($card.data('side') || '') === 'target';
+            if (isTargetCard) {
+                var visible = true;
+                if (lensSettings.unsaved.hide && !hasUnsaved) {
+                    visible = false;
+                }
+                if (lensSettings['missing-gps'].hide && !missingGPS) {
+                    visible = false;
+                }
+                cardOuterWrap($card).toggle(visible);
+            }
         });
 
+        syncSelectionOutlineState();
         updateSaveButtonVisibility();
     }
 
     function updateReferenceNeighborHighlightForSelection() {
         panes.reference.$pane.find('.photo-card').removeClass('ref-before-highlight ref-after-highlight');
-        var $selectedTarget = selectedCardForPane(panes.target.$pane);
+        var $selectedTarget = activeTargetCard();
         if ($selectedTarget.length === 0) {
             return;
         }
@@ -817,7 +1067,7 @@ $(function() {
         if (!mapState) {
             return;
         }
-        var $selected = selectedCardForPane($pane);
+        var $selected = $pane.is(panes.target.$pane) ? activeTargetCard() : selectedCardForPane($pane);
         var lat = parseFloat($selected.attr('data-gps-lat'));
         var lon = parseFloat($selected.attr('data-gps-lon'));
 
@@ -904,6 +1154,101 @@ $(function() {
         return $pane.find('.photo-card.is-selected').first();
     }
 
+    function activeTargetCard() {
+        if (targetSelectionAnchorID) {
+            var $anchor = panes.target.$pane.find('.photo-card[data-photo-id="' + targetSelectionAnchorID + '"]').first();
+            if ($anchor.length > 0 && $anchor.hasClass('is-selected')) {
+                return $anchor;
+            }
+        }
+        var $selected = selectedCardForPane(panes.target.$pane);
+        if ($selected.length > 0) {
+            setTargetSelectionAnchor($selected);
+        }
+        return $selected;
+    }
+
+    function selectedTargetInfos() {
+        var selectedIDs = {};
+        panes.target.$pane.find('.photo-card.is-selected').each(function() {
+            selectedIDs[String($(this).data('photoId') || '')] = true;
+        });
+        return panes.target.cards.filter(function(info) {
+            return !!selectedIDs[info.id];
+        });
+    }
+
+    function setTargetSelectionAnchor($card) {
+        if (!$card || $card.length === 0) {
+            targetSelectionAnchorID = '';
+            panes.target.$pane.find('.photo-card').removeClass('is-selection-anchor');
+            return;
+        }
+        targetSelectionAnchorID = String($card.data('photoId') || '');
+        panes.target.$pane.find('.photo-card').removeClass('is-selection-anchor');
+        $card.addClass('is-selection-anchor');
+    }
+
+    function collapseTargetSelectionToAnchor() {
+        var $anchor = activeTargetCard();
+        panes.target.$pane.find('.photo-card').removeClass('is-selected is-selection-anchor');
+        if ($anchor.length > 0) {
+            $anchor.addClass('is-selected');
+            setTargetSelectionAnchor($anchor);
+        } else {
+            targetSelectionAnchorID = '';
+        }
+    }
+
+    function updateTargetImageScopeSelection($card, evt) {
+        var $pane = panes.target.$pane;
+        var clickedID = String($card.data('photoId') || '');
+        var useRange = !!(evt && evt.shiftKey);
+        var useAdd = !!(evt && (evt.ctrlKey || evt.metaKey));
+
+        if (useRange) {
+            var selectedInfos = selectedTargetInfos();
+            var clickedInfo = cardInfoByID(panes.target, clickedID);
+            var nearestPrev = null;
+            if (!clickedInfo) {
+                return;
+            }
+
+            selectedInfos.forEach(function(info) {
+                if (info.index < clickedInfo.index && (!nearestPrev || info.index > nearestPrev.index)) {
+                    nearestPrev = info;
+                }
+            });
+
+            if (!useAdd) {
+                $pane.find('.photo-card').removeClass('is-selected is-selection-anchor');
+            }
+            if (!nearestPrev) {
+                $card.addClass('is-selected');
+                setTargetSelectionAnchor($card);
+                return;
+            }
+
+            panes.target.cards.forEach(function(info) {
+                if (info.index >= nearestPrev.index && info.index <= clickedInfo.index) {
+                    info.$el.addClass('is-selected');
+                }
+            });
+            setTargetSelectionAnchor($card);
+            return;
+        }
+
+        if (useAdd) {
+            $card.addClass('is-selected');
+            setTargetSelectionAnchor($card);
+            return;
+        }
+
+        $pane.find('.photo-card').removeClass('is-selected is-selection-anchor');
+        $card.addClass('is-selected');
+        setTargetSelectionAnchor($card);
+    }
+
     function cardInfoByID(pane, id) {
         for (var i = 0; i < pane.cards.length; i += 1) {
             if (pane.cards[i].id === id) {
@@ -915,6 +1260,20 @@ $(function() {
 
     function cardLensWrap($card, lensName) {
         return $card.closest('[data-lens-wrap="' + lensName + '"]');
+    }
+
+    function cardSelectionWrap($card) {
+        return cardLensWrap($card, 'selected');
+    }
+
+    function cardOuterWrap($card) {
+        return cardLensWrap($card, 'unsaved');
+    }
+
+    function syncSelectionOutlineState() {
+        allCards().forEach(function($card) {
+            cardSelectionWrap($card).toggleClass('is-highlighted', $card.hasClass('is-selected'));
+        });
     }
 
     function ensureAdjustedBadge($card) {
@@ -1015,12 +1374,22 @@ $(function() {
                 $card.attr('data-base-exif-gps', curGPS);
                 $card.attr('data-base-gps-lat', curLat);
                 $card.attr('data-base-gps-lon', curLon);
+                if (($card.attr('data-base-exif-time') || '') === curExif) {
+                    $card.removeAttr('data-adjusted-exif-time');
+                    $card.removeClass('has-adjusted');
+                    $card.find('.thumb-adjusted').text('');
+                }
+                if (normalizeCoordText(curLat) === normalizeCoordText($card.attr('data-base-gps-lat') || '') &&
+                    normalizeCoordText(curLon) === normalizeCoordText($card.attr('data-base-gps-lon') || '')) {
+                    $card.removeClass('has-gps-adjusted');
+                }
             });
 
             applyLensHighlightState();
-            var $selectedTarget = selectedCardForPane(panes.target.$pane);
+            var $selectedTarget = activeTargetCard();
             if ($selectedTarget.length > 0) {
                 updatePaneMetadataFromCard(panes.target.$pane, $selectedTarget);
+                syncPaneMap(panes.target.$pane);
             }
 
             if (errors.length > 0) {
@@ -1076,6 +1445,6 @@ $(function() {
         var hasUnsaved = panes.target.cards.some(function(info) {
             return cardHasUnsavedChanges(info.$el);
         });
-        $('#apply-sync').prop('hidden', !hasUnsaved);
+        $('#apply-sync').prop('disabled', !hasUnsaved);
     }
 });

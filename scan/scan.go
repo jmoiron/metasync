@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jmoiron/metasync/exif"
 	"github.com/jmoiron/metasync/model"
@@ -27,6 +28,14 @@ var supportedExts = []string{
 	".png",
 	".tif",
 	".tiff",
+	".arw",
+	".cr2",
+	".cr3",
+	".crw",
+	".nef",
+	".nrw",
+	".sr2",
+	".srf",
 }
 
 func Supported(path string) bool {
@@ -121,25 +130,68 @@ func Photos(root string, side model.Side, recursive bool, refreshMetadata bool, 
 
 	exifData := map[string]model.ExifData{}
 	if extractor != nil && len(paths) > 0 {
+		extractStart := time.Now()
 		exifData = extractor.Extract(paths)
+		slog.Info(
+			"exif extraction complete",
+			"side", side,
+			"count", len(paths),
+			"elapsed", time.Since(extractStart).Round(time.Millisecond).String(),
+			"root", root,
+		)
 	}
+	var dimensionsElapsed time.Duration
+	dimensionsCount := 0
+	var upsertElapsed time.Duration
+	upsertCount := 0
 	for _, i := range uncached {
 		if data, ok := exifData[photos[i].Path]; ok {
 			photos[i].Exif = data
 		}
 		if photos[i].Exif.Width == 0 || photos[i].Exif.Height == 0 {
+			dimStart := time.Now()
+			dimensionsCount++
 			photos[i].Exif.Width, photos[i].Exif.Height = dimensions(photos[i].Path)
+			dimensionsElapsed += time.Since(dimStart)
 		}
 		if st != nil {
+			upsertItemStart := time.Now()
 			if err := st.Upsert(photos[i]); err != nil {
 				slog.Warn("cache upsert failed", "path", photos[i].Path, "err", err)
+			} else {
+				upsertCount++
 			}
+			upsertElapsed += time.Since(upsertItemStart)
 		}
 	}
+	slog.Info(
+		"dimension fallback complete",
+		"side", side,
+		"count", dimensionsCount,
+		"elapsed", dimensionsElapsed.Round(time.Millisecond).String(),
+		"root", root,
+	)
 	if st != nil {
+		slog.Info(
+			"metadata cache upsert complete",
+			"side", side,
+			"count", upsertCount,
+			"elapsed", upsertElapsed.Round(time.Millisecond).String(),
+			"root", root,
+		)
+	}
+	if st != nil {
+		thumbStart := time.Now()
 		if err := EnsureThumbnails(photos, st.CacheDir); err != nil {
 			slog.Warn("thumbnail generation failed", "side", side, "root", root, "err", err)
 		}
+		slog.Info(
+			"thumbnail ensure complete",
+			"side", side,
+			"count", len(photos),
+			"elapsed", time.Since(thumbStart).Round(time.Millisecond).String(),
+			"root", root,
+		)
 	}
 	slog.Info("scan complete", "side", side, "count", len(photos), "root", root)
 

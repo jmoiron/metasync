@@ -73,7 +73,7 @@ func parseFlags() options {
 	pflag.BoolVarP(&opts.Recursive, "recursive", "r", false, "recurse through target and reference directories")
 	pflag.BoolVar(&opts.RefreshMeta, "refresh-metadata", false, "re-extract photo metadata instead of reading cached metadata")
 	pflag.IntVar(&opts.Workers, "workers", 4, "number of workers for metadata extraction and thumbnail generation")
-	pflag.IntVar(&opts.BatchSize, "batch-size", 64, "number of files per EXIF extraction batch")
+	pflag.IntVar(&opts.BatchSize, "batch-size", 4, "number of files per EXIF extraction batch")
 	pflag.Parse()
 	return opts
 }

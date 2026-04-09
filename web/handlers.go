@@ -146,6 +146,7 @@ func (h *Handlers) Apply(w http.ResponseWriter, r *http.Request) {
 	}
 	defer extractor.Close()
 
+	writes := make([]exif.FileWrite, 0, len(req.Changes))
 	for _, change := range req.Changes {
 		if change.Path == "" {
 			resp.Errors = append(resp.Errors, ApplyError{
@@ -174,15 +175,21 @@ func (h *Handlers) Apply(w http.ResponseWriter, r *http.Request) {
 		if writeReq.Time == nil && writeReq.GPSLatitude == nil && writeReq.GPSLongitude == nil {
 			continue
 		}
+		writes = append(writes, exif.FileWrite{
+			Path: change.Path,
+			Req:  writeReq,
+		})
+	}
 
-		if writeErr := extractor.Write(change.Path, writeReq); writeErr != nil {
+	for _, result := range extractor.WriteAll(writes) {
+		if result.Err != nil {
 			resp.Errors = append(resp.Errors, ApplyError{
-				Path:  change.Path,
-				Error: writeErr.Error(),
+				Path:  result.Path,
+				Error: result.Err.Error(),
 			})
 			continue
 		}
-		resp.Applied = append(resp.Applied, change.Path)
+		resp.Applied = append(resp.Applied, result.Path)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
