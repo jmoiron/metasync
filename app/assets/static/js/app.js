@@ -1044,7 +1044,40 @@ $(function() {
         });
 
         syncSelectionOutlineState();
+        updatePaneSummaries();
         updateSaveButtonVisibility();
+    }
+
+    function updatePaneSummaries() {
+        $('.pane-summary').each(function() {
+            var $summary = $(this);
+            var baseSummary = String($summary.attr('data-base-summary') || '').trim();
+            if (!$summary.closest('.pane').is(panes.target.$pane)) {
+                $summary.text(baseSummary);
+                return;
+            }
+
+            var total = panes.target.cards.length;
+            if (total === 0) {
+                $summary.text(baseSummary);
+                return;
+            }
+
+            var visible = 0;
+            panes.target.cards.forEach(function(info) {
+                if (cardOuterWrap(info.$el).is(':visible')) {
+                    visible += 1;
+                }
+            });
+
+            var hideActive = !!lensSettings.unsaved.hide || !!lensSettings['missing-gps'].hide;
+            if (hideActive && visible < total) {
+                $summary.text(total + ' images loaded, ' + visible + ' shown');
+                return;
+            }
+
+            $summary.text(baseSummary);
+        });
     }
 
     function updateReferenceNeighborHighlightForSelection() {
