@@ -26,8 +26,8 @@ var static embed.FS
 type Config struct {
 	ListenAddr      string
 	Debug           bool
-	TargetPath      string
-	ReferencePath   string
+	TargetPaths     []string
+	ReferencePaths  []string
 	Recursive       bool
 	RefreshMetadata bool
 	Workers         int
@@ -65,8 +65,8 @@ func New(cfg Config) (*App, error) {
 
 	pageCfg := web.PageConfig{
 		Debug:           cfg.Debug,
-		TargetPath:      cfg.TargetPath,
-		ReferencePath:   cfg.ReferencePath,
+		TargetPaths:     cfg.TargetPaths,
+		ReferencePaths:  cfg.ReferencePaths,
 		Recursive:       cfg.Recursive,
 		RefreshMetadata: cfg.RefreshMetadata,
 		Workers:         cfg.Workers,
@@ -104,13 +104,13 @@ func (a *App) Run() error {
 }
 
 func preload(st *store.Store, cfg web.PageConfig) web.InitialState {
-	if cfg.TargetPath == "" && cfg.ReferencePath == "" {
+	if len(cfg.TargetPaths) == 0 && len(cfg.ReferencePaths) == 0 {
 		return web.InitialState{}
 	}
 
-	slog.Info("preloading startup scan", "target", cfg.TargetPath, "ref", cfg.ReferencePath, "recursive", cfg.Recursive, "refresh_metadata", cfg.RefreshMetadata)
+	slog.Info("preloading startup scan", "targets", cfg.TargetPaths, "refs", cfg.ReferencePaths, "recursive", cfg.Recursive, "refresh_metadata", cfg.RefreshMetadata)
 	var extractor *exif.Extractor
-	if cfg.TargetPath != "" || cfg.ReferencePath != "" {
+	if len(cfg.TargetPaths) > 0 || len(cfg.ReferencePaths) > 0 {
 		var err error
 		extractor, err = exif.New()
 		if err != nil {
@@ -120,8 +120,8 @@ func preload(st *store.Store, cfg web.PageConfig) web.InitialState {
 		}
 	}
 
-	targetPhotos, targetErr := preloadSide(cfg.TargetPath, model.SideTarget, cfg.Recursive, cfg.RefreshMetadata, extractor, st)
-	referencePhotos, referenceErr := preloadSide(cfg.ReferencePath, model.SideReference, cfg.Recursive, cfg.RefreshMetadata, extractor, st)
+	targetPhotos, targetErr := preloadSide(cfg.TargetPaths, model.SideTarget, cfg.Recursive, cfg.RefreshMetadata, extractor, st)
+	referencePhotos, referenceErr := preloadSide(cfg.ReferencePaths, model.SideReference, cfg.Recursive, cfg.RefreshMetadata, extractor, st)
 	slog.Info("startup preload complete", "target_count", len(targetPhotos), "ref_count", len(referencePhotos))
 
 	return web.InitialState{
@@ -132,9 +132,9 @@ func preload(st *store.Store, cfg web.PageConfig) web.InitialState {
 	}
 }
 
-func preloadSide(root string, side model.Side, recursive bool, refreshMetadata bool, extractor *exif.Extractor, st *store.Store) ([]model.Photo, error) {
-	if root == "" {
+func preloadSide(roots []string, side model.Side, recursive bool, refreshMetadata bool, extractor *exif.Extractor, st *store.Store) ([]model.Photo, error) {
+	if len(roots) == 0 {
 		return nil, nil
 	}
-	return scan.Photos(root, side, recursive, refreshMetadata, extractor, st)
+	return scan.Photos(roots, side, recursive, refreshMetadata, extractor, st)
 }

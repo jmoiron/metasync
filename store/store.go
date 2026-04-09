@@ -22,6 +22,45 @@ type Store struct {
 	CacheDir string
 }
 
+const upsertImageSQL = `
+	INSERT INTO images (
+		hash,
+		full_path,
+		filename,
+		modified_unix_ns,
+		size,
+		res_x,
+		res_y,
+		exif_time,
+		gps_lat,
+		gps_lon,
+		aperture,
+		exposure,
+		focal_length,
+		iso,
+		metering_mode,
+		camera_model,
+		cached_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(hash) DO UPDATE SET
+		full_path = excluded.full_path,
+		filename = excluded.filename,
+		modified_unix_ns = excluded.modified_unix_ns,
+		size = excluded.size,
+		res_x = excluded.res_x,
+		res_y = excluded.res_y,
+		exif_time = excluded.exif_time,
+		gps_lat = excluded.gps_lat,
+		gps_lon = excluded.gps_lon,
+		aperture = excluded.aperture,
+		exposure = excluded.exposure,
+		focal_length = excluded.focal_length,
+		iso = excluded.iso,
+		metering_mode = excluded.metering_mode,
+		camera_model = excluded.camera_model,
+		cached_at = excluded.cached_at
+`
+
 var imageMigrations = monarch.Set{
 	Name: "metasync_images",
 	Migrations: []monarch.Migration{
@@ -202,72 +241,36 @@ func (s *Store) Lookup(hash string) (model.Photo, bool, error) {
 }
 
 func (s *Store) Upsert(p model.Photo) error {
+	return s.UpsertMany([]model.Photo{p})
+}
+
+func (s *Store) UpsertMany(photos []model.Photo) error {
 	if s == nil || s.db == nil {
 		return nil
 	}
-
-	var exifTime any
-	if t := p.Exif.Time(); t != nil {
-		exifTime = t.Format(time.RFC3339Nano)
+	if len(photos) == 0 {
+		return nil
 	}
 
-	_, err := s.db.Exec(`
-		INSERT INTO images (
-			hash,
-			full_path,
-			filename,
-			modified_unix_ns,
-			size,
-			res_x,
-			res_y,
-			exif_time,
-			gps_lat,
-			gps_lon,
-			aperture,
-			exposure,
-			focal_length,
-			iso,
-			metering_mode,
-			camera_model,
-			cached_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(hash) DO UPDATE SET
-			full_path = excluded.full_path,
-			filename = excluded.filename,
-			modified_unix_ns = excluded.modified_unix_ns,
-			size = excluded.size,
-			res_x = excluded.res_x,
-			res_y = excluded.res_y,
-			exif_time = excluded.exif_time,
-			gps_lat = excluded.gps_lat,
-			gps_lon = excluded.gps_lon,
-			aperture = excluded.aperture,
-			exposure = excluded.exposure,
-			focal_length = excluded.focal_length,
-			iso = excluded.iso,
-			metering_mode = excluded.metering_mode,
-			camera_model = excluded.camera_model,
-			cached_at = excluded.cached_at
-	`,
-		p.CacheKey,
-		p.Path,
-		p.BaseName,
-		p.ModTime.UTC().UnixNano(),
-		p.Size,
-		nullIfZero(p.Exif.Width),
-		nullIfZero(p.Exif.Height),
-		exifTime,
-		nullFloat(p.Exif.GPSLatitude),
-		nullFloat(p.Exif.GPSLongitude),
-		nullFloat(p.Exif.Aperture),
-		nullString(p.Exif.Exposure),
-		nullFloat(p.Exif.FocalLength),
-		nullInt(p.Exif.ISO),
-		nullString(p.Exif.MeteringMode),
-		nullString(p.Exif.CameraModel),
-		time.Now().UTC().Format(time.RFC3339Nano),
-	)
-	return err
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Preparex(upsertImageSQL)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, p := range photos {
+		if _, err := stmt.Exec(upsertArgs(p)...); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 func (s *Store) init() error {
@@ -304,4 +307,31 @@ func nullString(v string) any {
 		return nil
 	}
 	return v
+}
+
+func upsertArgs(p model.Photo) []any {
+	var exifTime any
+	if t := p.Exif.Time(); t != nil {
+		exifTime = t.Format(time.RFC3339Nano)
+	}
+
+	return []any{
+		p.CacheKey,
+		p.Path,
+		p.BaseName,
+		p.ModTime.UTC().UnixNano(),
+		p.Size,
+		nullIfZero(p.Exif.Width),
+		nullIfZero(p.Exif.Height),
+		exifTime,
+		nullFloat(p.Exif.GPSLatitude),
+		nullFloat(p.Exif.GPSLongitude),
+		nullFloat(p.Exif.Aperture),
+		nullString(p.Exif.Exposure),
+		nullFloat(p.Exif.FocalLength),
+		nullInt(p.Exif.ISO),
+		nullString(p.Exif.MeteringMode),
+		nullString(p.Exif.CameraModel),
+		time.Now().UTC().Format(time.RFC3339Nano),
+	}
 }

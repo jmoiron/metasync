@@ -10,14 +10,14 @@ import (
 )
 
 type options struct {
-	Listen        string
-	Debug         bool
-	TargetPath    string
-	ReferencePath string
-	Recursive     bool
-	RefreshMeta   bool
-	Workers       int
-	BatchSize     int
+	Listen         string
+	Debug          bool
+	TargetPaths    []string
+	ReferencePaths []string
+	Recursive      bool
+	RefreshMeta    bool
+	Workers        int
+	BatchSize      int
 }
 
 func main() {
@@ -35,8 +35,8 @@ func main() {
 	srv, err := app.New(app.Config{
 		ListenAddr:      opts.Listen,
 		Debug:           opts.Debug,
-		TargetPath:      opts.TargetPath,
-		ReferencePath:   opts.ReferencePath,
+		TargetPaths:     opts.TargetPaths,
+		ReferencePaths:  opts.ReferencePaths,
 		Recursive:       opts.Recursive,
 		RefreshMetadata: opts.RefreshMeta,
 		Workers:         opts.Workers,
@@ -51,8 +51,8 @@ func main() {
 		"starting metasync",
 		"listen", opts.Listen,
 		"debug", opts.Debug,
-		"target", opts.TargetPath,
-		"ref", opts.ReferencePath,
+		"targets", opts.TargetPaths,
+		"refs", opts.ReferencePaths,
 		"recursive", opts.Recursive,
 		"refresh_metadata", opts.RefreshMeta,
 		"workers", opts.Workers,
@@ -68,8 +68,8 @@ func parseFlags() options {
 	var opts options
 	pflag.StringVar(&opts.Listen, "listen", ":8080", "listen address")
 	pflag.BoolVar(&opts.Debug, "debug", false, "enable debug logging")
-	pflag.StringVar(&opts.TargetPath, "target", "", "path to the target photo directory")
-	pflag.StringVar(&opts.ReferencePath, "ref", "", "path to the reference photo directory")
+	pflag.StringArrayVar(&opts.TargetPaths, "target", nil, "path to a target photo directory; may be provided multiple times")
+	pflag.StringArrayVar(&opts.ReferencePaths, "ref", nil, "path to a reference photo directory; may be provided multiple times")
 	pflag.BoolVarP(&opts.Recursive, "recursive", "r", false, "recurse through target and reference directories")
 	pflag.BoolVar(&opts.RefreshMeta, "refresh-metadata", false, "re-extract photo metadata instead of reading cached metadata")
 	pflag.IntVar(&opts.Workers, "workers", 4, "number of workers for metadata extraction and thumbnail generation")

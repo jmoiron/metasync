@@ -19,8 +19,10 @@ _metasync_ fixes this.
 ## usage
 
 ```bash
-$ metasync --target photos/without/metadata/ --ref phone-photos/from/same/period
+$ metasync --target photos/without/metadata/ --target more/targets/ --ref phone-photos/from/same/period --ref more/reference/photos/
 ```
+
+Both `--target` and `--ref` may be provided multiple times to scan more than one directory per side.
 
 _metasync_ is a local web-based tool that allows you to use a known good set of
 images as a kind of GPS tracker. If you have a photo in the ref set that is taken

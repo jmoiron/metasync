@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/jmoiron/metasync/exif"
@@ -18,8 +19,8 @@ import (
 
 type PageConfig struct {
 	Debug           bool
-	TargetPath      string
-	ReferencePath   string
+	TargetPaths     []string
+	ReferencePaths  []string
 	Recursive       bool
 	RefreshMetadata bool
 	Workers         int
@@ -45,23 +46,23 @@ func NewHandlers(reg *mtr.Registry, st *store.Store, cfg PageConfig, initial Ini
 }
 
 func (h *Handlers) Index(w http.ResponseWriter, r *http.Request) {
-	targetPath := firstNonEmpty(r.URL.Query().Get("target"), h.cfg.TargetPath)
-	referencePath := firstNonEmpty(r.URL.Query().Get("ref"), h.cfg.ReferencePath)
+	targetPaths := firstNonEmptyList(queryList(r, "target"), h.cfg.TargetPaths)
+	referencePaths := firstNonEmptyList(queryList(r, "ref"), h.cfg.ReferencePaths)
 	recursive := queryBool(r, "recursive", h.cfg.Recursive)
 
-	targetPhotos, referencePhotos, targetErr, referenceErr := h.resolveScan(targetPath, referencePath, recursive)
+	targetPhotos, referencePhotos, targetErr, referenceErr := h.resolveScan(targetPaths, referencePaths, recursive)
 
 	ctx := mtr.Ctx{
 		"title": "metasync",
 		"page": map[string]any{
 			"Debug":            h.cfg.Debug,
-			"TargetPath":       targetPath,
-			"ReferencePath":    referencePath,
+			"TargetPaths":      targetPaths,
+			"ReferencePaths":   referencePaths,
 			"Recursive":        recursive,
 			"TargetPhotos":     targetPhotos,
 			"ReferencePhotos":  referencePhotos,
-			"TargetSummary":    summarizePhotos(targetPath, targetPhotos, targetErr),
-			"ReferenceSummary": summarizePhotos(referencePath, referencePhotos, referenceErr),
+			"TargetSummary":    summarizePhotos(targetPaths, targetPhotos, targetErr),
+			"ReferenceSummary": summarizePhotos(referencePaths, referencePhotos, referenceErr),
 			"TargetError":      errString(targetErr),
 			"ReferenceError":   errString(referenceErr),
 		},
@@ -73,13 +74,13 @@ func (h *Handlers) Index(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Handlers) resolveScan(targetPath, referencePath string, recursive bool) ([]model.Photo, []model.Photo, error, error) {
-	if targetPath == h.cfg.TargetPath && referencePath == h.cfg.ReferencePath && recursive == h.cfg.Recursive {
+func (h *Handlers) resolveScan(targetPaths, referencePaths []string, recursive bool) ([]model.Photo, []model.Photo, error, error) {
+	if slices.Equal(targetPaths, h.cfg.TargetPaths) && slices.Equal(referencePaths, h.cfg.ReferencePaths) && recursive == h.cfg.Recursive {
 		return h.initial.TargetPhotos, h.initial.ReferencePhotos, h.initial.TargetError, h.initial.ReferenceError
 	}
 
 	var extractor *exif.Extractor
-	if targetPath != "" || referencePath != "" {
+	if len(targetPaths) > 0 || len(referencePaths) > 0 {
 		var err error
 		extractor, err = exif.New()
 		if err != nil {
@@ -89,8 +90,8 @@ func (h *Handlers) resolveScan(targetPath, referencePath string, recursive bool)
 		}
 	}
 
-	targetPhotos, targetErr := scanIfPresent(targetPath, model.SideTarget, recursive, h.cfg.RefreshMetadata, extractor, h.store)
-	referencePhotos, referenceErr := scanIfPresent(referencePath, model.SideReference, recursive, h.cfg.RefreshMetadata, extractor, h.store)
+	targetPhotos, targetErr := scanIfPresent(targetPaths, model.SideTarget, recursive, h.cfg.RefreshMetadata, extractor, h.store)
+	referencePhotos, referenceErr := scanIfPresent(referencePaths, model.SideReference, recursive, h.cfg.RefreshMetadata, extractor, h.store)
 	return targetPhotos, referencePhotos, targetErr, referenceErr
 }
 
@@ -200,19 +201,19 @@ func parsePreviewTime(value string) (time.Time, error) {
 	return time.ParseInLocation("2006-01-02 15:04:05", value, time.Local)
 }
 
-func scanIfPresent(root string, side model.Side, recursive bool, refreshMetadata bool, extractor *exif.Extractor, st *store.Store) ([]model.Photo, error) {
-	if root == "" {
+func scanIfPresent(roots []string, side model.Side, recursive bool, refreshMetadata bool, extractor *exif.Extractor, st *store.Store) ([]model.Photo, error) {
+	if len(roots) == 0 {
 		return nil, nil
 	}
-	return scan.Photos(root, side, recursive, refreshMetadata, extractor, st)
+	return scan.Photos(roots, side, recursive, refreshMetadata, extractor, st)
 }
 
-func summarizePhotos(root string, photos []model.Photo, err error) string {
+func summarizePhotos(roots []string, photos []model.Photo, err error) string {
 	switch {
-	case root == "":
+	case len(roots) == 0:
 		return "No directory loaded"
 	case err != nil:
-		return fmt.Sprintf("Unable to load %s", filepath.Base(root))
+		return fmt.Sprintf("Unable to load %s", summarizeRoots(roots))
 	case len(photos) == 0:
 		return "No supported image files found"
 	case len(photos) == 1:
@@ -220,6 +221,13 @@ func summarizePhotos(root string, photos []model.Photo, err error) string {
 	default:
 		return fmt.Sprintf("%d images loaded", len(photos))
 	}
+}
+
+func summarizeRoots(roots []string) string {
+	if len(roots) == 1 {
+		return filepath.Base(roots[0])
+	}
+	return fmt.Sprintf("%d directories", len(roots))
 }
 
 func errString(err error) string {
@@ -236,6 +244,24 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func firstNonEmptyList(values []string, fallback []string) []string {
+	if len(values) > 0 {
+		return values
+	}
+	return fallback
+}
+
+func queryList(r *http.Request, name string) []string {
+	values := r.URL.Query()[name]
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func queryBool(r *http.Request, name string, fallback bool) bool {

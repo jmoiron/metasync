@@ -43,7 +43,29 @@ func Supported(path string) bool {
 	return slices.Contains(supportedExts, ext)
 }
 
-func Photos(root string, side model.Side, recursive bool, refreshMetadata bool, extractor *exif.Extractor, st *store.Store) ([]model.Photo, error) {
+func Photos(roots []string, side model.Side, recursive bool, refreshMetadata bool, extractor *exif.Extractor, st *store.Store) ([]model.Photo, error) {
+	if len(roots) == 0 {
+		return nil, nil
+	}
+	photos := make([]model.Photo, 0, 128)
+	for _, root := range roots {
+		rootPhotos, err := photosFromRoot(root, side, recursive, refreshMetadata, extractor, st)
+		if err != nil {
+			return nil, err
+		}
+		photos = append(photos, rootPhotos...)
+	}
+	sort.Slice(photos, func(i, j int) bool {
+		if photos[i].BaseName == photos[j].BaseName {
+			return photos[i].Path < photos[j].Path
+		}
+		return photos[i].BaseName < photos[j].BaseName
+	})
+	slog.Info("multi-root scan complete", "side", side, "count", len(photos), "roots", roots)
+	return photos, nil
+}
+
+func photosFromRoot(root string, side model.Side, recursive bool, refreshMetadata bool, extractor *exif.Extractor, st *store.Store) ([]model.Photo, error) {
 	root = filepath.Clean(root)
 	slog.Info("starting photo scan", "side", side, "root", root, "recursive", recursive, "refresh_metadata", refreshMetadata)
 
@@ -144,6 +166,7 @@ func Photos(root string, side model.Side, recursive bool, refreshMetadata bool, 
 	dimensionsCount := 0
 	var upsertElapsed time.Duration
 	upsertCount := 0
+	photosToUpsert := make([]model.Photo, 0, len(uncached))
 	for _, i := range uncached {
 		if data, ok := exifData[photos[i].Path]; ok {
 			photos[i].Exif = data
@@ -155,13 +178,7 @@ func Photos(root string, side model.Side, recursive bool, refreshMetadata bool, 
 			dimensionsElapsed += time.Since(dimStart)
 		}
 		if st != nil {
-			upsertItemStart := time.Now()
-			if err := st.Upsert(photos[i]); err != nil {
-				slog.Warn("cache upsert failed", "path", photos[i].Path, "err", err)
-			} else {
-				upsertCount++
-			}
-			upsertElapsed += time.Since(upsertItemStart)
+			photosToUpsert = append(photosToUpsert, photos[i])
 		}
 	}
 	slog.Info(
@@ -172,6 +189,13 @@ func Photos(root string, side model.Side, recursive bool, refreshMetadata bool, 
 		"root", root,
 	)
 	if st != nil {
+		upsertStart := time.Now()
+		if err := st.UpsertMany(photosToUpsert); err != nil {
+			slog.Warn("cache upsert failed", "side", side, "root", root, "err", err)
+		} else {
+			upsertCount = len(photosToUpsert)
+		}
+		upsertElapsed = time.Since(upsertStart)
 		slog.Info(
 			"metadata cache upsert complete",
 			"side", side,
