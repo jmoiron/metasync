@@ -960,11 +960,19 @@ $(function() {
             var isTargetCard = String($card.data('side') || '') === 'target';
             if (isTargetCard) {
                 var visible = true;
-                if (lensSettings.unsaved.hide && !hasUnsaved) {
-                    visible = false;
+                var activeHideLensCount = 0;
+                var matchesActiveHideLens = false;
+
+                if (lensSettings.unsaved.hide) {
+                    activeHideLensCount += 1;
+                    matchesActiveHideLens = matchesActiveHideLens || hasUnsaved;
                 }
-                if (lensSettings['missing-gps'].hide && !missingGPS) {
-                    visible = false;
+                if (lensSettings['missing-gps'].hide) {
+                    activeHideLensCount += 1;
+                    matchesActiveHideLens = matchesActiveHideLens || missingGPS;
+                }
+                if (activeHideLensCount > 0) {
+                    visible = matchesActiveHideLens;
                 }
                 cardOuterWrap($card).toggle(visible);
             }
