@@ -25,6 +25,8 @@ fa-solid fa-sun
 fa-regular fa-sun
 fa-solid fa-square
 fa-regular fa-square
+fa-regular fa-square-minus
+fa-regular fa-square-plus
 fa-solid fa-moon
 fa-solid fa-chevron-down
 fa-solid fa-chevron-up
@@ -37,6 +39,7 @@ fa-solid fa-comment
 fa-solid fa-comments
 fa-solid fa-paperclip
 fa-solid fa-file
+fa-solid fa-file-circle-question
 fa-solid fa-image
 fa-solid fa-calendar
 fa-solid fa-calendar-day

@@ -1,10 +1,14 @@
 package exif
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -39,6 +43,7 @@ type extractResult struct {
 
 type WriteRequest struct {
 	Time         *time.Time
+	GPSTime      *time.Time
 	GPSLatitude  *float64
 	GPSLongitude *float64
 }
@@ -248,6 +253,12 @@ func (e *Extractor) Write(path string, req WriteRequest) error {
 		md.SetString("OffsetTime", offset)
 	}
 
+	if req.GPSTime != nil {
+		utc := req.GPSTime.UTC()
+		md.SetString("GPSDateStamp", utc.Format("2006:01:02"))
+		md.SetString("GPSTimeStamp", utc.Format("15:04:05"))
+	}
+
 	if req.GPSLatitude != nil {
 		md.SetFloat("GPSLatitude", math.Abs(*req.GPSLatitude))
 		if *req.GPSLatitude < 0 {
@@ -268,6 +279,26 @@ func (e *Extractor) Write(path string, req WriteRequest) error {
 	items := []exiftool.FileMetadata{md}
 	e.et.WriteMetadata(items)
 	return items[0].Err
+}
+
+func Full(ctx context.Context, path string) (map[string]any, error) {
+	cmd := exec.CommandContext(ctx, "exiftool", "-j", "-a", "-G1", "-struct", path)
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var rows []map[string]any
+	if err := json.Unmarshal(output, &rows); err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return map[string]any{}, nil
+	}
+
+	data := rows[0]
+	delete(data, "SourceFile")
+	return data, nil
 }
 
 func (e *Extractor) WriteAll(changes []FileWrite) []WriteResult {
@@ -379,21 +410,81 @@ func logWriteProgress(start time.Time, completed, total int) {
 }
 
 func normalize(file exiftool.FileMetadata) model.ExifData {
+	dateTimeOriginal, offsetTimeOriginal := firstTimeWithOffset(file,
+		[]string{"DateTimeOriginal", "SubSecDateTimeOriginal"},
+		"OffsetTimeOriginal", "OffsetTime", "TimeZone",
+	)
 	return model.ExifData{
-		DateTimeOriginal: firstTime(file, "DateTimeOriginal", "SubSecDateTimeOriginal"),
-		CreateDate:       firstTime(file, "CreateDate", "SubSecCreateDate"),
-		ModifyDate:       firstTime(file, "ModifyDate"),
-		GPSLatitude:      firstGPSCoordinate(file, "GPSLatitude", "GPSLatitudeRef", "N", "S"),
-		GPSLongitude:     firstGPSCoordinate(file, "GPSLongitude", "GPSLongitudeRef", "E", "W"),
-		Width:            firstInt(file, "ImageWidth", "ExifImageWidth", "SourceImageWidth"),
-		Height:           firstInt(file, "ImageHeight", "ExifImageHeight", "SourceImageHeight"),
-		Aperture:         firstFloat(file, "Aperture", "FNumber"),
-		Exposure:         firstString(file, "ExposureTime", "ShutterSpeed"),
-		FocalLength:      firstFloat(file, "FocalLength"),
-		ISO:              firstIntPtr(file, "ISO"),
-		MeteringMode:     firstString(file, "MeteringMode"),
-		CameraModel:      firstString(file, "Model"),
+		DateTimeOriginal:   dateTimeOriginal,
+		OffsetTimeOriginal: offsetTimeOriginal,
+		CreateDate:         firstTime(file, "CreateDate", "SubSecCreateDate"),
+		ModifyDate:         firstTime(file, "ModifyDate"),
+		GPSDateTime:        firstGPSTime(file),
+		GPSLatitude:        firstGPSCoordinate(file, "GPSLatitude", "GPSLatitudeRef", "N", "S"),
+		GPSLongitude:       firstGPSCoordinate(file, "GPSLongitude", "GPSLongitudeRef", "E", "W"),
+		Width:              firstInt(file, "ImageWidth", "ExifImageWidth", "SourceImageWidth"),
+		Height:             firstInt(file, "ImageHeight", "ExifImageHeight", "SourceImageHeight"),
+		Aperture:           firstFloat(file, "Aperture", "FNumber"),
+		Exposure:           firstString(file, "ExposureTime", "ShutterSpeed"),
+		FocalLength:        firstFloat(file, "FocalLength"),
+		ISO:                firstIntPtr(file, "ISO"),
+		MeteringMode:       firstString(file, "MeteringMode"),
+		CameraModel:        firstString(file, "Model"),
 	}
+}
+
+func firstTimeWithOffset(file exiftool.FileMetadata, dateKeys []string, offsetKeys ...string) (*time.Time, string) {
+	offset := normalizeOffset(firstString(file, offsetKeys...))
+	for _, key := range dateKeys {
+		value, err := file.GetString(key)
+		if err != nil || value == "" {
+			continue
+		}
+		if explicitOffset := offsetFromValue(value); explicitOffset != "" {
+			if t, ok := parseTime(value); ok {
+				return &t, explicitOffset
+			}
+		}
+		if offset != "" {
+			if t, ok := parseTimeWithOffset(value, offset); ok {
+				return &t, offset
+			}
+		}
+		if t, ok := parseTime(value); ok {
+			return &t, ""
+		}
+	}
+	return nil, offset
+}
+
+func firstGPSTime(file exiftool.FileMetadata) *time.Time {
+	if t := firstTime(file, "GPSDateTime"); t != nil {
+		return t
+	}
+
+	dateStamp := firstString(file, "GPSDateStamp")
+	timeStamp := firstString(file, "GPSTimeStamp")
+	if dateStamp == "" || timeStamp == "" {
+		return nil
+	}
+
+	datePart := strings.TrimSpace(dateStamp)
+	fields := strings.Fields(timeStamp)
+	if len(fields) == 0 {
+		return nil
+	}
+	timePart := strings.TrimSpace(fields[0])
+	for _, layout := range []string{
+		"2006:01:02 15:04:05Z",
+		"2006:01:02 15:04:05.999999999Z",
+		"2006-01-02 15:04:05Z",
+		"2006-01-02 15:04:05.999999999Z",
+	} {
+		if t, err := time.Parse(layout, datePart+" "+timePart+"Z"); err == nil {
+			return &t
+		}
+	}
+	return nil
 }
 
 func firstTime(file exiftool.FileMetadata, keys ...string) *time.Time {
@@ -510,6 +601,44 @@ func parseTime(value string) (time.Time, bool) {
 		}
 	}
 	return time.Time{}, false
+}
+
+func parseTimeWithOffset(value, offset string) (time.Time, bool) {
+	offset = normalizeOffset(offset)
+	if offset == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{
+		"2006:01:02 15:04:05.999999999 -07:00",
+		"2006:01:02 15:04:05 -07:00",
+		"2006-01-02 15:04:05.999999999 -07:00",
+		"2006-01-02 15:04:05 -07:00",
+	} {
+		if t, err := time.Parse(layout, strings.TrimSpace(value)+" "+offset); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func normalizeOffset(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	matched, _ := regexp.MatchString(`^[+-]\d{2}:\d{2}$`, value)
+	if matched {
+		return value
+	}
+	return ""
+}
+
+func offsetFromValue(value string) string {
+	m := regexp.MustCompile(`([+-]\d{2}:\d{2})$`).FindStringSubmatch(strings.TrimSpace(value))
+	if len(m) == 2 {
+		return m[1]
+	}
+	return ""
 }
 
 func parseFloatString(value string) (float64, bool) {

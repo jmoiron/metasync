@@ -14,6 +14,7 @@ require (
 
 require (
 	dario.cat/mergo v1.0.0 // indirect
+	github.com/Lionparcel/timezonemapper v1.0.1 // indirect
 	github.com/go-sprout/sprout v0.6.0 // indirect
 	github.com/spf13/cast v1.6.0 // indirect
 	github.com/yuin/goldmark v1.7.8 // indirect

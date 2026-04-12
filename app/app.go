@@ -88,6 +88,7 @@ func New(cfg Config) (*App, error) {
 
 	r.Get("/", h.Index)
 	r.Post("/apply", h.Apply)
+	r.Get("/exif", h.InspectExif)
 	r.Get("/healthz", h.Healthz)
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 	r.Handle("/cache/*", http.StripPrefix("/cache/", http.FileServer(http.Dir(st.CacheDir))))

@@ -14,19 +14,22 @@ const (
 )
 
 type ExifData struct {
-	DateTimeOriginal *time.Time
-	CreateDate       *time.Time
-	ModifyDate       *time.Time
-	GPSLatitude      *float64
-	GPSLongitude     *float64
-	Width            int
-	Height           int
-	Aperture         *float64
-	Exposure         string
-	FocalLength      *float64
-	ISO              *int
-	MeteringMode     string
-	CameraModel      string
+	DateTimeOriginal   *time.Time
+	OffsetTimeOriginal string
+	CreateDate         *time.Time
+	ModifyDate         *time.Time
+	GPSDateTime        *time.Time
+	GPSTimeZone        string
+	GPSLatitude        *float64
+	GPSLongitude       *float64
+	Width              int
+	Height             int
+	Aperture           *float64
+	Exposure           string
+	FocalLength        *float64
+	ISO                *int
+	MeteringMode       string
+	CameraModel        string
 }
 
 func (e ExifData) Time() *time.Time {
@@ -47,6 +50,38 @@ func (e ExifData) TimeDisplay() string {
 		return t.Format("2006-01-02 15:04:05")
 	}
 	return "n/a"
+}
+
+func (e ExifData) TimeOffsetDisplay() string {
+	return e.OffsetTimeOriginal
+}
+
+func (e ExifData) TimeDisplayWithOffset() string {
+	if t := e.Time(); t != nil {
+		if e.OffsetTimeOriginal != "" {
+			return t.Format("2006-01-02 15:04:05") + " " + e.OffsetTimeOriginal
+		}
+		return t.Format("2006-01-02 15:04:05")
+	}
+	return "n/a"
+}
+
+func (e ExifData) GPSTimeDisplay() string {
+	if e.GPSDateTime != nil {
+		return e.GPSDateTime.UTC().Format("2006-01-02 15:04:05Z")
+	}
+	return "n/a"
+}
+
+func (e ExifData) GPSTimeAttr() string {
+	if e.GPSDateTime != nil {
+		return e.GPSDateTime.UTC().Format(time.RFC3339Nano)
+	}
+	return ""
+}
+
+func (e ExifData) GPSTimeZoneDisplay() string {
+	return e.GPSTimeZone
 }
 
 func (e ExifData) GPSDisplay() string {

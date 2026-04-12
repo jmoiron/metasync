@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Lionparcel/timezonemapper"
 	"github.com/jmoiron/metasync/exif"
 	"github.com/jmoiron/metasync/model"
 	"github.com/jmoiron/metasync/store"
@@ -140,6 +141,7 @@ func photosFromRoot(root string, side model.Side, recursive bool, refreshMetadat
 					slog.Warn("cache lookup failed", "path", photos[i].Path, "err", err)
 				} else if ok {
 					photos[i].Exif = cached.Exif
+					populateDerivedExif(&photos[i].Exif)
 					cacheHits++
 					continue
 				}
@@ -171,6 +173,7 @@ func photosFromRoot(root string, side model.Side, recursive bool, refreshMetadat
 		if data, ok := exifData[photos[i].Path]; ok {
 			photos[i].Exif = data
 		}
+		populateDerivedExif(&photos[i].Exif)
 		if photos[i].Exif.Width == 0 || photos[i].Exif.Height == 0 {
 			dimStart := time.Now()
 			dimensionsCount++
@@ -220,6 +223,13 @@ func photosFromRoot(root string, side model.Side, recursive bool, refreshMetadat
 	slog.Info("scan complete", "side", side, "count", len(photos), "root", root)
 
 	return photos, nil
+}
+
+func populateDerivedExif(ex *model.ExifData) {
+	if ex == nil || ex.GPSLatitude == nil || ex.GPSLongitude == nil {
+		return
+	}
+	ex.GPSTimeZone = timezonemapper.LatLngToTimezoneString(*ex.GPSLatitude, *ex.GPSLongitude)
 }
 
 func idFor(side model.Side, path string) string {

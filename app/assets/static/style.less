@@ -229,6 +229,12 @@ a:hover {
     background: color-mix(in srgb, var(--lens-missing-gps) 12%, var(--surface) 88%);
 }
 
+.lens-icon-toggle.is-active[data-lens="missing-gps-time"] {
+    color: var(--lens-missing-gps-time);
+    border-color: color-mix(in srgb, var(--lens-missing-gps-time) 65%, var(--border) 35%);
+    background: color-mix(in srgb, var(--lens-missing-gps-time) 12%, var(--surface) 88%);
+}
+
 .sync-col {
     display: grid;
     gap: 0.55rem;
@@ -405,6 +411,146 @@ a:hover {
     color: var(--red);
 }
 
+.exif-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: grid;
+    place-items: center;
+    padding: 1.5rem;
+    z-index: 40;
+}
+
+.exif-modal {
+    width: min(72rem, calc(100vw - 3rem));
+    height: min(80vh, 52rem);
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 97%, var(--hover-bg) 3%);
+    box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.22);
+    display: grid;
+    grid-template-rows: auto 1fr;
+    min-height: 0;
+}
+
+.exif-modal-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.exif-modal-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-shrink: 0;
+}
+
+.metadata-toggle-btn.exif-modal-action {
+    min-width: 2.2rem;
+    padding: 0.28rem 0.5rem;
+    display: inline-grid;
+    place-items: center;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.metadata-toggle-btn.exif-modal-action:hover {
+    background: var(--hover-bg);
+    color: var(--text);
+}
+
+.exif-modal-heading {
+    display: grid;
+    gap: 0.2rem;
+    min-width: 0;
+}
+
+.exif-modal-path {
+    color: var(--muted);
+    font-size: 0.85rem;
+    word-break: break-all;
+}
+
+.exif-modal-body {
+    overflow: auto;
+    padding: 0.85rem 1rem 1rem;
+    min-height: 0;
+}
+
+.exif-modal-status {
+    color: var(--muted);
+}
+
+.exif-tree {
+    display: grid;
+    gap: 0.3rem;
+}
+
+.exif-tree-node {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.exif-tree-children {
+    display: grid;
+    gap: 0.25rem;
+    margin-left: 1.25rem;
+    padding-left: 0.6rem;
+    border-left: 1px solid color-mix(in srgb, var(--border) 75%, transparent 25%);
+}
+
+.exif-tree-row {
+    display: grid;
+    grid-template-columns: auto minmax(8rem, 16rem) minmax(0, 1fr);
+    gap: 0.5rem;
+    align-items: start;
+    padding: 0.28rem 0.35rem;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--surface) 88%, var(--bg) 12%);
+}
+
+.exif-tree-toggle {
+    width: 1.2rem;
+    min-height: 1.2rem;
+    display: inline-grid;
+    place-items: center;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0;
+}
+
+.exif-tree-toggle:hover {
+    color: var(--text);
+}
+
+.exif-tree-spacer {
+    width: 1.2rem;
+    min-height: 1.2rem;
+}
+
+.exif-tree-key {
+    color: var(--muted);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding-top: 0.1rem;
+}
+
+.exif-tree-value {
+    word-break: break-word;
+}
+
+.exif-tree-value.is-empty {
+    color: var(--muted);
+    font-style: italic;
+}
+
 .sync-pair {
     display: flex;
     align-items: center;
@@ -481,6 +627,15 @@ a:hover {
     flex-wrap: wrap;
 }
 
+.pane-header-meta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.55rem;
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+
 .pane-header h2 {
     margin: 0;
     font-size: 1.05rem;
@@ -493,6 +648,15 @@ a:hover {
     margin-left: auto;
     text-align: right;
     white-space: nowrap;
+}
+
+.timezone-select {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 0.25rem 0.7rem;
+    min-width: 7.2rem;
 }
 
 .timeline {
@@ -644,6 +808,11 @@ body.lens-missing-gps-highlight-active .lens-wrap[data-lens-wrap="missing-gps"].
     box-shadow: inset 0 0 0 2px var(--lens-missing-gps);
 }
 
+body.lens-missing-gps-time-highlight-active .lens-wrap[data-lens-wrap="missing-gps-time"].is-highlighted::after {
+    inset: -8px;
+    box-shadow: inset 0 0 0 2px var(--lens-missing-gps-time);
+}
+
 .lens-wrap[data-lens-wrap="selected"].is-highlighted::after {
     inset: -2px;
     box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 82%, var(--surface) 18%);
@@ -764,6 +933,8 @@ body.lens-missing-gps-highlight-active .lens-wrap[data-lens-wrap="missing-gps"].
     display: inline-flex;
     gap: 0.35rem;
     margin-bottom: 0.6rem;
+    align-items: center;
+    width: 100%;
 }
 
 .metadata-toggle-btn {
@@ -825,6 +996,11 @@ body.lens-missing-gps-highlight-active .lens-wrap[data-lens-wrap="missing-gps"].
 .metadata-table td.preview-gps {
     color: var(--lens-missing-gps);
     font-weight: 600;
+}
+
+.metadata-table .exif-time-text,
+.metadata-table .exif-gps-text {
+    cursor: help;
 }
 
 .metadata-table tr:last-child th,

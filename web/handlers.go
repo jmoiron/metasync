@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/metasync/exif"
@@ -109,6 +110,8 @@ type ApplyChangesRequest struct {
 type ApplyFileChange struct {
 	Path         string   `json:"path"`
 	ExifTime     *string  `json:"exif_time,omitempty"`
+	ExifOffset   *string  `json:"exif_offset,omitempty"`
+	GPSTime      *string  `json:"gps_time,omitempty"`
 	GPSLatitude  *float64 `json:"gps_latitude,omitempty"`
 	GPSLongitude *float64 `json:"gps_longitude,omitempty"`
 }
@@ -121,6 +124,11 @@ type ApplyError struct {
 type ApplyChangesResponse struct {
 	Applied []string     `json:"applied"`
 	Errors  []ApplyError `json:"errors"`
+}
+
+type InspectExifResponse struct {
+	Path string         `json:"path"`
+	Data map[string]any `json:"data"`
 }
 
 func (h *Handlers) Apply(w http.ResponseWriter, r *http.Request) {
@@ -161,19 +169,30 @@ func (h *Handlers) Apply(w http.ResponseWriter, r *http.Request) {
 			GPSLatitude:  change.GPSLatitude,
 			GPSLongitude: change.GPSLongitude,
 		}
-		if change.ExifTime != nil {
-			t, parseErr := parsePreviewTime(*change.ExifTime)
+		if change.ExifTime != nil || change.ExifOffset != nil {
+			t, parseErr := parsePreviewTime(firstNonEmptyPtr(change.ExifTime), firstNonEmptyPtr(change.ExifOffset))
 			if parseErr != nil {
 				resp.Errors = append(resp.Errors, ApplyError{
 					Path:  change.Path,
-					Error: "invalid exif_time format",
+					Error: "invalid exif time/offset format",
 				})
 				continue
 			}
 			writeReq.Time = &t
 		}
+		if change.GPSTime != nil {
+			t, parseErr := parseGPSTime(*change.GPSTime)
+			if parseErr != nil {
+				resp.Errors = append(resp.Errors, ApplyError{
+					Path:  change.Path,
+					Error: "invalid gps_time format",
+				})
+				continue
+			}
+			writeReq.GPSTime = &t
+		}
 
-		if writeReq.Time == nil && writeReq.GPSLatitude == nil && writeReq.GPSLongitude == nil {
+		if writeReq.Time == nil && writeReq.GPSTime == nil && writeReq.GPSLatitude == nil && writeReq.GPSLongitude == nil {
 			continue
 		}
 		writes = append(writes, exif.FileWrite{
@@ -197,8 +216,78 @@ func (h *Handlers) Apply(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func parsePreviewTime(value string) (time.Time, error) {
+func (h *Handlers) InspectExif(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "missing path", http.StatusBadRequest)
+		return
+	}
+
+	data, err := exif.Full(r.Context(), path)
+	if err != nil {
+		http.Error(w, "failed to load exif data", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(InspectExifResponse{
+		Path: path,
+		Data: nestExifData(data),
+	})
+}
+
+func nestExifData(data map[string]any) map[string]any {
+	root := make(map[string]any)
+	for key, value := range data {
+		parts := strings.Split(key, ":")
+		cursor := root
+		for i, part := range parts {
+			if i == len(parts)-1 {
+				cursor[part] = value
+				continue
+			}
+			next, ok := cursor[part]
+			if !ok {
+				child := make(map[string]any)
+				cursor[part] = child
+				cursor = child
+				continue
+			}
+			child, ok := next.(map[string]any)
+			if !ok {
+				child = map[string]any{
+					"_value": next,
+				}
+				cursor[part] = child
+			}
+			cursor = child
+		}
+	}
+	return root
+}
+
+func parsePreviewTime(value, offset string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, fmt.Errorf("missing exif_time")
+	}
+	if offset != "" {
+		return time.Parse("2006-01-02 15:04:05 -07:00", value+" "+offset)
+	}
 	return time.ParseInLocation("2006-01-02 15:04:05", value, time.Local)
+}
+
+func parseGPSTime(value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, fmt.Errorf("missing gps_time")
+	}
+	return time.Parse(time.RFC3339Nano, value)
+}
+
+func firstNonEmptyPtr(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func scanIfPresent(roots []string, side model.Side, recursive bool, refreshMetadata bool, extractor *exif.Extractor, st *store.Store) ([]model.Photo, error) {

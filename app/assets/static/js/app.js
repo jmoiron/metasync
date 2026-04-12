@@ -18,7 +18,8 @@ $(function() {
     var targetSelectionAnchorID = '';
     var lensSettings = {
         unsaved: { highlight: true, hide: false },
-        'missing-gps': { highlight: true, hide: false }
+        'missing-gps': { highlight: true, hide: false },
+        'missing-gps-time': { highlight: true, hide: false }
     };
 
     var $workspace = $('[data-role="workspace"]');
@@ -32,6 +33,7 @@ $(function() {
     };
 
     applyTheme(localStorage.getItem('theme') || 'light');
+    initializeTimezoneSelectors();
     bindBasicControls();
     bindHeaderMenus();
     bindPhotoSelection();
@@ -67,8 +69,47 @@ $(function() {
         return {
             side: sideName,
             $pane: $pane,
-            cards: cards
+            cards: cards,
+            $timezoneSelect: $pane.find('[data-timezone-select]').first()
         };
+    }
+
+    function initializeTimezoneSelectors() {
+        [panes.target, panes.reference].forEach(function(pane) {
+            populateTimezoneSelector(pane);
+        });
+    }
+
+    function populateTimezoneSelector(pane) {
+        var $select = pane.$timezoneSelect;
+        if ($select.length === 0) {
+            return;
+        }
+        var currentValue = String($select.val() || 'local');
+
+        var offsets = {};
+        pane.cards.forEach(function(info) {
+            var offset = normalizeOffsetString(info.$el.attr('data-exif-offset') || '');
+            if (offset) {
+                offsets[offset] = true;
+            }
+        });
+
+        var values = Object.keys(offsets).sort(compareOffsetStrings);
+        $select.empty();
+        $select.append('<option value="local">Local</option>');
+        $select.append('<option value="utc">UTC</option>');
+        values.forEach(function(offset) {
+            if (offset === '+00:00') {
+                return;
+            }
+            $select.append($('<option></option>').attr('value', offset).text('UTC' + offset));
+        });
+        if ($select.find('option[value="' + currentValue + '"]').length > 0) {
+            $select.val(currentValue);
+        } else {
+            $select.val('local');
+        }
     }
 
     function bindBasicControls() {
@@ -77,6 +118,15 @@ $(function() {
             var next = cur === 'dark' ? 'light' : 'dark';
             localStorage.setItem('theme', next);
             applyTheme(next);
+        });
+
+        $workspace.on('change', '[data-timezone-select]', function() {
+            var $pane = $(this).closest('.pane');
+            var pane = $pane.is(panes.target.$pane) ? panes.target : panes.reference;
+            var $selected = pane.side === 'target' ? activeTargetCard() : selectedCardForPane($pane);
+            if ($selected.length > 0) {
+                updatePaneMetadataFromCard($pane, $selected);
+            }
         });
     }
 
@@ -103,6 +153,7 @@ $(function() {
         $(document).on('keydown', function(evt) {
             if (evt.key === 'Escape') {
                 closeFloatingMenus();
+                hideExifModal();
             }
         });
 
@@ -140,12 +191,41 @@ $(function() {
     function bindMetadataToggle() {
         $workspace.on('click', '.metadata-toggle-btn', function() {
             var $button = $(this);
+            if ($button.is('[data-action="inspect-exif"]')) {
+                return;
+            }
             var mode = String($button.data('mode'));
             var $panel = $button.closest('.metadata-panel');
 
             setMetadataPanelMode($panel.closest('.pane'), mode);
             if (mode === 'map') {
                 syncPaneMap($button.closest('.pane'));
+            }
+        });
+
+        $workspace.on('click', '[data-action="inspect-exif"]', function() {
+            var $pane = $(this).closest('.pane');
+            var $selected = $pane.is(panes.target.$pane) ? activeTargetCard() : selectedCardForPane($pane);
+            if ($selected.length === 0) {
+                $('#sync-status').text('Select an image first.');
+                return;
+            }
+            inspectExifForCard($selected);
+        });
+
+        $('#dismiss-exif-modal').on('click', function() {
+            hideExifModal();
+        });
+        $('#expand-all-exif').on('click', function() {
+            setAllExifTreeNodesExpanded(true);
+        });
+        $('#collapse-all-exif').on('click', function() {
+            setAllExifTreeNodesExpanded(false);
+        });
+
+        $('#exif-modal').on('click', function(evt) {
+            if ($(evt.target).is('#exif-modal')) {
+                hideExifModal();
             }
         });
     }
@@ -199,6 +279,15 @@ $(function() {
             updateReferenceNeighborHighlightForSelection();
             $('#sync-status').text('Applied time preview from ' + syncPairs.length + ' sync pair' + (syncPairs.length === 1 ? '' : 's') + '.');
             closeHeaderMenus();
+        });
+        $('#copy-timezone').on('click', function() {
+            copyTimezoneFromReference();
+        });
+        $('#set-gps-time').on('click', function() {
+            setGPSTimeFromLocalTime();
+        });
+        $('#convert-timezone').on('click', function() {
+            convertTimezoneFromReference();
         });
         $('#gps-from-reference').on('click', function() {
             clearMapPickMode();
@@ -732,7 +821,6 @@ $(function() {
     function applyTimePreview() {
         panes.target.cards.forEach(function(info) {
             var $card = info.$el;
-            var baseExifTime = $card.attr('data-base-exif-time') || 'n/a';
             var adjustedMs = adjustedTimesByTargetID[info.id];
             if (Number.isFinite(adjustedMs)) {
                 var adjustedText = formatExif(new Date(adjustedMs));
@@ -740,8 +828,7 @@ $(function() {
                 $card.attr('data-adjusted-exif-time', adjustedText);
                 $card.addClass('has-adjusted');
                 $card.find('.thumb-adjusted').text(adjustedText);
-            } else {
-                $card.attr('data-exif-time', baseExifTime);
+            } else if (($card.attr('data-exif-time') || '') === ($card.attr('data-base-exif-time') || '')) {
                 $card.removeAttr('data-adjusted-exif-time');
                 $card.removeClass('has-adjusted');
                 $card.find('.thumb-adjusted').text('');
@@ -846,7 +933,7 @@ $(function() {
             }
         }
         var sessionMin = Math.max(1, Number($('#session-minutes').val()) || 5);
-        var groups = buildGroups(pane.cards, mode, sessionMin);
+        var groups = buildGroups(pane, pane.cards, mode, sessionMin);
 
         $timeline.empty();
         groups.forEach(function(group) {
@@ -892,15 +979,15 @@ $(function() {
         $timeline.scrollTop(prevScrollTop);
     }
 
-    function buildGroups(cards, mode, sessionMin) {
+    function buildGroups(pane, cards, mode, sessionMin) {
         var groups = [];
         var byKey = {};
         var noTime = { key: 'none', title: 'No timestamp', cards: [] };
         var sorted = cards
             .slice()
             .sort(function(a, b) {
-                var aMs = currentCardExifMs(a.$el);
-                var bMs = currentCardExifMs(b.$el);
+                var aMs = displayTimelineMsForPane(pane, a.$el);
+                var bMs = displayTimelineMsForPane(pane, b.$el);
                 return compareCardsByTimeThenOrder(aMs, bMs, a.order, b.order);
             });
 
@@ -908,7 +995,7 @@ $(function() {
             var threshold = sessionMin * 60 * 1000;
             var current = null;
             sorted.forEach(function(info) {
-                var ms = currentCardExifMs(info.$el);
+                var ms = displayTimelineMsForPane(pane, info.$el);
                 if (!Number.isFinite(ms)) {
                     noTime.cards.push(info);
                     return;
@@ -928,7 +1015,7 @@ $(function() {
             });
         } else {
             sorted.forEach(function(info) {
-                var ms = currentCardExifMs(info.$el);
+                var ms = displayTimelineMsForPane(pane, info.$el);
                 if (!Number.isFinite(ms)) {
                     noTime.cards.push(info);
                     return;
@@ -1004,8 +1091,10 @@ $(function() {
         $('body')
             .toggleClass('lens-unsaved-highlight-active', !!lensSettings.unsaved.highlight)
             .toggleClass('lens-missing-gps-highlight-active', !!lensSettings['missing-gps'].highlight)
+            .toggleClass('lens-missing-gps-time-highlight-active', !!lensSettings['missing-gps-time'].highlight)
             .toggleClass('lens-unsaved-hide-active', !!lensSettings.unsaved.hide)
-            .toggleClass('lens-missing-gps-hide-active', !!lensSettings['missing-gps'].hide);
+            .toggleClass('lens-missing-gps-hide-active', !!lensSettings['missing-gps'].hide)
+            .toggleClass('lens-missing-gps-time-hide-active', !!lensSettings['missing-gps-time'].hide);
 
         $('.lens-icon-toggle').each(function() {
             var $button = $(this);
@@ -1019,8 +1108,10 @@ $(function() {
         allCards().forEach(function($card) {
             var hasUnsaved = cardHasUnsavedChanges($card);
             var missingGPS = cardMissingGPS($card);
+            var missingGPSTime = cardMissingGPSTime($card);
             cardLensWrap($card, 'unsaved').toggleClass('is-highlighted', lensSettings.unsaved.highlight && hasUnsaved);
             cardLensWrap($card, 'missing-gps').toggleClass('is-highlighted', lensSettings['missing-gps'].highlight && missingGPS);
+            cardLensWrap($card, 'missing-gps-time').toggleClass('is-highlighted', lensSettings['missing-gps-time'].highlight && missingGPSTime);
 
             var isTargetCard = String($card.data('side') || '') === 'target';
             if (isTargetCard) {
@@ -1035,6 +1126,10 @@ $(function() {
                 if (lensSettings['missing-gps'].hide) {
                     activeHideLensCount += 1;
                     matchesActiveHideLens = matchesActiveHideLens || missingGPS;
+                }
+                if (lensSettings['missing-gps-time'].hide) {
+                    activeHideLensCount += 1;
+                    matchesActiveHideLens = matchesActiveHideLens || missingGPSTime;
                 }
                 if (activeHideLensCount > 0) {
                     visible = matchesActiveHideLens;
@@ -1051,32 +1146,16 @@ $(function() {
     function updatePaneSummaries() {
         $('.pane-summary').each(function() {
             var $summary = $(this);
-            var baseSummary = String($summary.attr('data-base-summary') || '').trim();
-            if (!$summary.closest('.pane').is(panes.target.$pane)) {
-                $summary.text(baseSummary);
-                return;
-            }
-
-            var total = panes.target.cards.length;
-            if (total === 0) {
-                $summary.text(baseSummary);
-                return;
-            }
-
+            var $pane = $summary.closest('.pane');
+            var pane = $pane.is(panes.target.$pane) ? panes.target : panes.reference;
+            var total = pane.cards.length;
             var visible = 0;
-            panes.target.cards.forEach(function(info) {
+            pane.cards.forEach(function(info) {
                 if (cardOuterWrap(info.$el).is(':visible')) {
                     visible += 1;
                 }
             });
-
-            var hideActive = !!lensSettings.unsaved.hide || !!lensSettings['missing-gps'].hide;
-            if (hideActive && visible < total) {
-                $summary.text(total + ' images loaded, ' + visible + ' shown');
-                return;
-            }
-
-            $summary.text(baseSummary);
+            $summary.text(visible + ' of ' + total);
         });
     }
 
@@ -1105,7 +1184,11 @@ $(function() {
     function cardHasUnsavedChanges($card) {
         var baseExif = $card.attr('data-base-exif-time') || '';
         var curExif = $card.attr('data-exif-time') || '';
-        if (baseExif !== curExif) {
+        var baseOffset = normalizeOffsetString($card.attr('data-base-exif-offset') || '');
+        var curOffset = normalizeOffsetString($card.attr('data-exif-offset') || '');
+        var baseGPSTime = String($card.attr('data-base-gps-time') || '');
+        var curGPSTime = String($card.attr('data-gps-time') || '');
+        if (baseExif !== curExif || baseOffset !== curOffset || baseGPSTime !== curGPSTime) {
             return true;
         }
         var baseLat = normalizeCoordText($card.attr('data-base-gps-lat') || '');
@@ -1121,11 +1204,17 @@ $(function() {
         return !Number.isFinite(lat) || !Number.isFinite(lon);
     }
 
+    function cardMissingGPSTime($card) {
+        return String($card.attr('data-gps-time') || '').trim() === '';
+    }
+
     function updatePaneMetadataFromCard($pane, $card) {
         var isTargetPane = $pane.is(panes.target.$pane);
         var originalExif = $card.attr('data-base-exif-time') || 'n/a';
         var currentExif = $card.attr('data-exif-time') || 'n/a';
         var hasTimePreview = isTargetPane && originalExif !== 'n/a' && currentExif !== originalExif;
+        var displayExif = displayExifTimeForPane($pane, $card);
+        var gpsHover = displayGPSTime($card);
 
         var originalGPS = $card.attr('data-base-exif-gps') || 'n/a';
         var currentGPS = $card.attr('data-exif-gps') || 'n/a';
@@ -1137,10 +1226,16 @@ $(function() {
         $pane.find('[data-field="resolution"]').text($card.data('resolution') || 'n/a');
         var $exifTime = $pane.find('[data-field="exif-time"]');
         var $exifGPS = $pane.find('[data-field="exif-gps"]');
-        $exifTime.text(currentExif).toggleClass('preview-unsaved', hasTimePreview);
-        $exifGPS.text(currentGPS).toggleClass('preview-gps', hasGPSPreview);
+        $exifTime
+            .empty()
+            .append($('<span class="exif-time-text"></span>').text(displayExif).attr('title', 'GPS: ' + gpsHover))
+            .toggleClass('preview-unsaved', hasTimePreview);
+        $exifGPS
+            .empty()
+            .append($('<span class="exif-gps-text"></span>').text(currentGPS).attr('title', gpsTimeZoneHover($card)))
+            .toggleClass('preview-gps', hasGPSPreview);
         if (hasTimePreview) {
-            $exifTime.attr('aria-label', 'Previous EXIF time: ' + originalExif + '. Preview value: ' + currentExif + '.');
+            $exifTime.attr('aria-label', 'Previous EXIF time: ' + formatLocalExifDisplay(originalExif, $card.attr('data-base-exif-offset') || '') + '. Preview value: ' + displayExif + '.');
         } else {
             $exifTime.removeAttr('aria-label');
         }
@@ -1391,11 +1486,273 @@ $(function() {
         }
     }
 
+    function paneTimeView($pane) {
+        return String($pane.find('[data-timezone-select]').val() || 'local');
+    }
+
+    function displayTimelineMsForPane(pane, $card) {
+        var localMs = currentCardExifMs($card);
+        var view = paneTimeView(pane.$pane);
+        if (view === 'local') {
+            return localMs;
+        }
+        var instantMs = instantMsForCard($card, $card.attr('data-exif-time') || '', $card.attr('data-exif-offset') || '');
+        if (!Number.isFinite(instantMs)) {
+            return localMs;
+        }
+        if (view === 'utc') {
+            return instantMs;
+        }
+        var offsetMin = offsetMinutes(view);
+        if (!Number.isFinite(offsetMin)) {
+            return localMs;
+        }
+        return instantMs + (offsetMin * 60 * 1000);
+    }
+
+    function displayExifTimeForPane($pane, $card) {
+        var currentExif = String($card.attr('data-exif-time') || 'n/a');
+        var currentOffset = String($card.attr('data-exif-offset') || '');
+        var view = paneTimeView($pane);
+        if (currentExif === '' || currentExif === 'n/a') {
+            return 'n/a';
+        }
+        if (view === 'local') {
+            return formatLocalExifDisplay(currentExif, currentOffset);
+        }
+
+        var instantMs = instantMsForCard($card, currentExif, currentOffset);
+        if (!Number.isFinite(instantMs)) {
+            return formatLocalExifDisplay(currentExif, currentOffset);
+        }
+        if (view === 'utc') {
+            return formatTimeAtOffset(instantMs, 0, true);
+        }
+
+        var offsetMin = offsetMinutes(view);
+        if (!Number.isFinite(offsetMin)) {
+            return formatLocalExifDisplay(currentExif, currentOffset);
+        }
+        return formatTimeAtOffset(instantMs, offsetMin, false);
+    }
+
+    function displayGPSTime($card) {
+        var gpsTime = String($card.attr('data-gps-time') || '');
+        var ms = gpsTime ? Date.parse(gpsTime) : NaN;
+        if (!Number.isFinite(ms)) {
+            return 'n/a';
+        }
+        return formatTimeAtOffset(ms, 0, true);
+    }
+
+    function gpsTimeZoneHover($card) {
+        var timezone = String($card.attr('data-gps-timezone') || '').trim();
+        if (timezone) {
+            return 'Timezone: ' + timezone;
+        }
+        return 'Timezone: n/a';
+    }
+
+    function formatLocalExifDisplay(timeText, offsetText) {
+        if (!timeText || timeText === 'n/a') {
+            return 'n/a';
+        }
+        var offset = normalizeOffsetString(offsetText);
+        if (!offset) {
+            return timeText;
+        }
+        return timeText + ' ' + offset;
+    }
+
+    function instantMsForCard($card, timeText, offsetText) {
+        var offset = normalizeOffsetString(offsetText);
+        if (timeText && timeText !== 'n/a' && offset) {
+            var parts = parseExifParts(timeText);
+            var offsetMin = offsetMinutes(offset);
+            if (parts && Number.isFinite(offsetMin)) {
+                return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second, 0) - (offsetMin * 60 * 1000);
+            }
+        }
+
+        var gpsTime = String($card.attr('data-gps-time') || '');
+        if (!gpsTime) {
+            return NaN;
+        }
+        return Date.parse(gpsTime);
+    }
+
+    function parseExifParts(value) {
+        var m = String(value).match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+        if (!m) {
+            return null;
+        }
+        return {
+            year: Number(m[1]),
+            month: Number(m[2]),
+            day: Number(m[3]),
+            hour: Number(m[4]),
+            minute: Number(m[5]),
+            second: Number(m[6])
+        };
+    }
+
+    function offsetMinutes(offset) {
+        var normalized = normalizeOffsetString(offset);
+        if (!normalized) {
+            return NaN;
+        }
+        var sign = normalized.charAt(0) === '-' ? -1 : 1;
+        var hour = Number(normalized.slice(1, 3));
+        var minute = Number(normalized.slice(4, 6));
+        return sign * ((hour * 60) + minute);
+    }
+
+    function normalizeOffsetString(offset) {
+        var text = String(offset || '').trim();
+        return /^[+-]\d{2}:\d{2}$/.test(text) ? text : '';
+    }
+
+    function compareOffsetStrings(a, b) {
+        return offsetMinutes(a) - offsetMinutes(b);
+    }
+
+    function formatTimeAtOffset(ms, offsetMin, useUTCLabel) {
+        var shifted = new Date(ms + (offsetMin * 60 * 1000));
+        var text = shifted.getUTCFullYear() + '-' + pad2(shifted.getUTCMonth() + 1) + '-' + pad2(shifted.getUTCDate()) +
+            ' ' + pad2(shifted.getUTCHours()) + ':' + pad2(shifted.getUTCMinutes()) + ':' + pad2(shifted.getUTCSeconds());
+        if (useUTCLabel) {
+            return text + ' UTC';
+        }
+        var sign = offsetMin >= 0 ? '+' : '-';
+        var total = Math.abs(offsetMin);
+        return text + ' ' + sign + pad2(Math.floor(total / 60)) + ':' + pad2(total % 60);
+    }
+
     function currentTargetMs(info) {
         if (Number.isFinite(adjustedTimesByTargetID[info.id])) {
             return adjustedTimesByTargetID[info.id];
         }
         return currentCardExifMs(info.$el);
+    }
+
+    function selectedReferenceOffset() {
+        var $reference = selectedCardForPane(panes.reference.$pane);
+        if ($reference.length === 0) {
+            return '';
+        }
+        return normalizeOffsetString($reference.attr('data-exif-offset') || '');
+    }
+
+    function copyTimezoneFromReference() {
+        var refOffset = selectedReferenceOffset();
+        if (!refOffset) {
+            $('#sync-status').text('Select a reference image with a timezone offset first.');
+            return;
+        }
+        var scope = String($('#scope').val() || 'global');
+        var targetCards = targetCardsForScope(scope);
+        if ((scope === 'image' || scope === 'session') && targetCards.length === 0) {
+            $('#sync-status').text('Select a target image for image/session time scope.');
+            return;
+        }
+
+        var changed = 0;
+        targetCards.forEach(function(info) {
+            var $card = info.$el;
+            if (($card.attr('data-exif-time') || 'n/a') === 'n/a') {
+                return;
+            }
+            if (normalizeOffsetString($card.attr('data-exif-offset') || '') === refOffset) {
+                return;
+            }
+            $card.attr('data-exif-offset', refOffset);
+            changed += 1;
+        });
+        afterTimeAction(changed, 'Copied timezone to ');
+    }
+
+    function setGPSTimeFromLocalTime() {
+        var scope = String($('#scope').val() || 'global');
+        var targetCards = targetCardsForScope(scope);
+        if ((scope === 'image' || scope === 'session') && targetCards.length === 0) {
+            $('#sync-status').text('Select a target image for image/session time scope.');
+            return;
+        }
+
+        var changed = 0;
+        targetCards.forEach(function(info) {
+            var $card = info.$el;
+            var instantMs = instantMsForCard($card, $card.attr('data-exif-time') || '', $card.attr('data-exif-offset') || '');
+            if (!Number.isFinite(instantMs)) {
+                return;
+            }
+            var gpsTime = new Date(instantMs).toISOString();
+            if (($card.attr('data-gps-time') || '') === gpsTime) {
+                return;
+            }
+            $card.attr('data-gps-time', gpsTime);
+            changed += 1;
+        });
+        afterTimeAction(changed, 'Set GPS time for ');
+    }
+
+    function convertTimezoneFromReference() {
+        var refOffset = selectedReferenceOffset();
+        if (!refOffset) {
+            $('#sync-status').text('Select a reference image with a timezone offset first.');
+            return;
+        }
+        var refOffsetMin = offsetMinutes(refOffset);
+        var scope = String($('#scope').val() || 'global');
+        var targetCards = targetCardsForScope(scope);
+        if ((scope === 'image' || scope === 'session') && targetCards.length === 0) {
+            $('#sync-status').text('Select a target image for image/session time scope.');
+            return;
+        }
+
+        var changed = 0;
+        targetCards.forEach(function(info) {
+            var $card = info.$el;
+            var instantMs = instantMsForCard($card, $card.attr('data-exif-time') || '', $card.attr('data-exif-offset') || '');
+            if (!Number.isFinite(instantMs)) {
+                return;
+            }
+            var converted = localTimePartsAtOffset(instantMs, refOffsetMin);
+            if (($card.attr('data-exif-time') || '') === converted.text &&
+                normalizeOffsetString($card.attr('data-exif-offset') || '') === refOffset) {
+                return;
+            }
+            $card.attr('data-exif-time', converted.text);
+            $card.attr('data-exif-offset', refOffset);
+            $card.attr('data-adjusted-exif-time', converted.text);
+            $card.addClass('has-adjusted');
+            $card.find('.thumb-adjusted').text(converted.text);
+            changed += 1;
+        });
+        afterTimeAction(changed, 'Converted timezone for ');
+    }
+
+    function afterTimeAction(changed, prefix) {
+        populateTimezoneSelector(panes.target);
+        applyLensHighlightState();
+        renderGroups();
+        var $selectedTarget = activeTargetCard();
+        if ($selectedTarget.length > 0) {
+            updatePaneMetadataFromCard(panes.target.$pane, $selectedTarget);
+        }
+        if (changed === 0) {
+            $('#sync-status').text('No target images changed.');
+            return;
+        }
+        $('#sync-status').text(prefix + changed + ' target image' + (changed === 1 ? '' : 's') + '.');
+    }
+
+    function localTimePartsAtOffset(ms, offsetMin) {
+        var shifted = new Date(ms + (offsetMin * 60 * 1000));
+        return {
+            text: shifted.getUTCFullYear() + '-' + pad2(shifted.getUTCMonth() + 1) + '-' + pad2(shifted.getUTCDate()) +
+                ' ' + pad2(shifted.getUTCHours()) + ':' + pad2(shifted.getUTCMinutes()) + ':' + pad2(shifted.getUTCSeconds())
+        };
     }
 
     function allCards() {
@@ -1409,6 +1766,10 @@ $(function() {
             var $card = info.$el;
             var baseExif = $card.attr('data-base-exif-time') || '';
             var curExif = $card.attr('data-exif-time') || '';
+            var baseOffset = normalizeOffsetString($card.attr('data-base-exif-offset') || '');
+            var curOffset = normalizeOffsetString($card.attr('data-exif-offset') || '');
+            var baseGPSTime = String($card.attr('data-base-gps-time') || '');
+            var curGPSTime = String($card.attr('data-gps-time') || '');
             var baseLat = normalizeCoordText($card.attr('data-base-gps-lat') || '');
             var baseLon = normalizeCoordText($card.attr('data-base-gps-lon') || '');
             var curLat = normalizeCoordText($card.attr('data-gps-lat') || '');
@@ -1419,8 +1780,15 @@ $(function() {
             };
             var changed = false;
 
-            if (baseExif !== curExif && curExif !== '' && curExif !== 'n/a') {
+            if ((baseExif !== curExif || baseOffset !== curOffset) && curExif !== '' && curExif !== 'n/a') {
                 change.exif_time = curExif;
+                if (curOffset !== '') {
+                    change.exif_offset = curOffset;
+                }
+                changed = true;
+            }
+            if (baseGPSTime !== curGPSTime && curGPSTime !== '') {
+                change.gps_time = curGPSTime;
                 changed = true;
             }
             if (baseLat !== curLat && curLat !== '') {
@@ -1473,10 +1841,14 @@ $(function() {
                 }
 
                 var curExif = $card.attr('data-exif-time') || '';
+                var curOffset = $card.attr('data-exif-offset') || '';
+                var curGPSTime = $card.attr('data-gps-time') || '';
                 var curGPS = $card.attr('data-exif-gps') || '';
                 var curLat = $card.attr('data-gps-lat') || '';
                 var curLon = $card.attr('data-gps-lon') || '';
                 $card.attr('data-base-exif-time', curExif);
+                $card.attr('data-base-exif-offset', curOffset);
+                $card.attr('data-base-gps-time', curGPSTime);
                 $card.attr('data-base-exif-gps', curGPS);
                 $card.attr('data-base-gps-lat', curLat);
                 $card.attr('data-base-gps-lon', curLon);
@@ -1492,6 +1864,7 @@ $(function() {
             });
 
             applyLensHighlightState();
+            populateTimezoneSelector(panes.target);
             var $selectedTarget = activeTargetCard();
             if ($selectedTarget.length > 0) {
                 updatePaneMetadataFromCard(panes.target.$pane, $selectedTarget);
@@ -1545,6 +1918,165 @@ $(function() {
     function hideApplyResults() {
         $('#apply-results').prop('hidden', true);
         $('#apply-results-body').empty();
+    }
+
+    function inspectExifForCard($card) {
+        var path = String($card.data('path') || '');
+        var basename = String($card.data('basename') || path || 'selected image');
+        if (!path) {
+            $('#sync-status').text('Selected image path is missing.');
+            return;
+        }
+
+        showExifModalLoading(basename, path);
+        fetch('/exif?path=' + encodeURIComponent(path), {
+            method: 'GET'
+        }).then(function(resp) {
+            if (!resp.ok) {
+                return resp.text().then(function(text) {
+                    throw new Error(text || ('HTTP ' + resp.status));
+                });
+            }
+            return resp.json();
+        }).then(function(resp) {
+            renderExifModal(basename, path, resp && resp.data ? resp.data : {});
+        }).catch(function(err) {
+            renderExifModalError(basename, path, err && err.message ? err.message : 'Failed to load EXIF data.');
+        });
+    }
+
+    function showExifModalLoading(label, path) {
+        var $modal = $('#exif-modal');
+        $('#exif-modal-title').text('Full EXIF Data');
+        $('#exif-modal-path').text(path);
+        $('#exif-modal-body').html('<div class="exif-modal-status">Loading EXIF data…</div>');
+        $modal.prop('hidden', false);
+    }
+
+    function renderExifModal(label, path, data) {
+        var $body = $('#exif-modal-body');
+        $('#exif-modal-title').text('Full EXIF Data');
+        $('#exif-modal-path').text(path);
+        $body.empty();
+
+        var keys = Object.keys(data || {});
+        if (keys.length === 0) {
+            $body.html('<div class="exif-modal-status">No EXIF data found.</div>');
+            $('#exif-modal').prop('hidden', false);
+            return;
+        }
+
+        $body.append(renderExifTree(data, 0));
+        $('#exif-modal').prop('hidden', false);
+    }
+
+    function renderExifModalError(label, path, message) {
+        $('#exif-modal-title').text('Full EXIF Data');
+        $('#exif-modal-path').text(path);
+        $('#exif-modal-body').html('<div class="exif-modal-status"></div>');
+        $('#exif-modal-body .exif-modal-status').text(message || 'Failed to load EXIF data.');
+        $('#exif-modal').prop('hidden', false);
+    }
+
+    function hideExifModal() {
+        $('#exif-modal').prop('hidden', true);
+        $('#exif-modal-path').text('');
+        $('#exif-modal-body').empty();
+    }
+
+    function setAllExifTreeNodesExpanded(expanded) {
+        $('#exif-modal-body .exif-tree-toggle').each(function() {
+            setExifTreeToggleState($(this), expanded);
+        });
+    }
+
+    function renderExifTree(value, depth) {
+        var $container = $('<div class="exif-tree"></div>');
+        eachExifEntry(value, function(key, childValue) {
+            $container.append(renderExifNode(String(key), childValue, depth));
+        });
+        return $container;
+    }
+
+    function renderExifNode(key, value, depth) {
+        var hasChildren = exifValueHasChildren(value);
+        var expanded = depth === 0;
+        var $node = $('<div class="exif-tree-node"></div>');
+        var $row = $('<div class="exif-tree-row"></div>');
+
+        if (hasChildren) {
+            var $toggle = $('<button type="button" class="exif-tree-toggle" aria-expanded="' + (expanded ? 'true' : 'false') + '"></button>');
+            $toggle.append('<span class="fa-regular ' + (expanded ? 'fa-square-minus' : 'fa-square-plus') + '" aria-hidden="true"></span>');
+            $toggle.on('click', function() {
+                expanded = $toggle.attr('aria-expanded') !== 'true';
+                setExifTreeToggleState($toggle, expanded);
+            });
+            $row.append($toggle);
+        } else {
+            $row.append('<span class="exif-tree-spacer"></span>');
+        }
+
+        $row.append($('<div class="exif-tree-key"></div>').text(key));
+        $row.append(renderExifValue(value, hasChildren));
+        $node.append($row);
+
+        var $children = $('<div class="exif-tree-children"></div>');
+        if (hasChildren) {
+            eachExifEntry(value, function(childKey, childValue) {
+                $children.append(renderExifNode(String(childKey), childValue, depth + 1));
+            });
+            $children.prop('hidden', !expanded);
+            $node.append($children);
+        }
+
+        return $node;
+    }
+
+    function setExifTreeToggleState($toggle, expanded) {
+        $toggle.attr('aria-expanded', expanded ? 'true' : 'false');
+        $toggle.find('.fa-regular')
+            .toggleClass('fa-square-minus', expanded)
+            .toggleClass('fa-square-plus', !expanded);
+        $toggle.data('expanded', expanded);
+        $toggle.closest('.exif-tree-node').children('.exif-tree-children').prop('hidden', !expanded);
+    }
+
+    function renderExifValue(value, hasChildren) {
+        if (hasChildren) {
+            if (Array.isArray(value)) {
+                return $('<div class="exif-tree-value"></div>').text(value.length + ' item' + (value.length === 1 ? '' : 's'));
+            }
+            return $('<div class="exif-tree-value"></div>').text('Object');
+        }
+        if (value === null || typeof value === 'undefined' || value === '') {
+            return $('<div class="exif-tree-value is-empty"></div>').text('empty');
+        }
+        if (typeof value === 'object') {
+            return $('<div class="exif-tree-value"></div>').text(JSON.stringify(value));
+        }
+        return $('<div class="exif-tree-value"></div>').text(String(value));
+    }
+
+    function exifValueHasChildren(value) {
+        if (!value || typeof value !== 'object') {
+            return false;
+        }
+        if (Array.isArray(value)) {
+            return value.length > 0;
+        }
+        return Object.keys(value).length > 0;
+    }
+
+    function eachExifEntry(value, fn) {
+        if (Array.isArray(value)) {
+            value.forEach(function(item, idx) {
+                fn('[' + idx + ']', item);
+            });
+            return;
+        }
+        Object.keys(value).sort().forEach(function(key) {
+            fn(key, value[key]);
+        });
     }
 
     function updateSaveButtonVisibility() {

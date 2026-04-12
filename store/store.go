@@ -32,6 +32,8 @@ const upsertImageSQL = `
 		res_x,
 		res_y,
 		exif_time,
+		exif_offset,
+		gps_time,
 		gps_lat,
 		gps_lon,
 		aperture,
@@ -41,7 +43,7 @@ const upsertImageSQL = `
 		metering_mode,
 		camera_model,
 		cached_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(hash) DO UPDATE SET
 		full_path = excluded.full_path,
 		filename = excluded.filename,
@@ -50,6 +52,8 @@ const upsertImageSQL = `
 		res_x = excluded.res_x,
 		res_y = excluded.res_y,
 		exif_time = excluded.exif_time,
+		exif_offset = excluded.exif_offset,
+		gps_time = excluded.gps_time,
 		gps_lat = excluded.gps_lat,
 		gps_lon = excluded.gps_lon,
 		aperture = excluded.aperture,
@@ -89,6 +93,14 @@ var imageMigrations = monarch.Set{
 		{
 			Up:   `CREATE INDEX IF NOT EXISTS image_full_path ON images (full_path);`,
 			Down: `DROP INDEX image_full_path;`,
+		},
+		{
+			Up:   `ALTER TABLE images ADD COLUMN exif_offset TEXT;`,
+			Down: ``,
+		},
+		{
+			Up:   `ALTER TABLE images ADD COLUMN gps_time TEXT;`,
+			Down: ``,
 		},
 	},
 }
@@ -152,6 +164,8 @@ func (s *Store) Lookup(hash string) (model.Photo, bool, error) {
 			res_x,
 			res_y,
 			exif_time,
+			exif_offset,
+			gps_time,
 			gps_lat,
 			gps_lon,
 			aperture,
@@ -168,6 +182,8 @@ func (s *Store) Lookup(hash string) (model.Photo, bool, error) {
 		p            model.Photo
 		modUnixNS    int64
 		exifTime     sql.NullString
+		exifOffset   sql.NullString
+		gpsTime      sql.NullString
 		gpsLat       sql.NullFloat64
 		gpsLon       sql.NullFloat64
 		aperture     sql.NullFloat64
@@ -186,6 +202,8 @@ func (s *Store) Lookup(hash string) (model.Photo, bool, error) {
 		&p.Exif.Width,
 		&p.Exif.Height,
 		&exifTime,
+		&exifOffset,
+		&gpsTime,
 		&gpsLat,
 		&gpsLon,
 		&aperture,
@@ -206,6 +224,14 @@ func (s *Store) Lookup(hash string) (model.Photo, bool, error) {
 	if exifTime.Valid {
 		if t, err := time.Parse(time.RFC3339Nano, exifTime.String); err == nil {
 			p.Exif.DateTimeOriginal = &t
+		}
+	}
+	if exifOffset.Valid {
+		p.Exif.OffsetTimeOriginal = exifOffset.String
+	}
+	if gpsTime.Valid {
+		if t, err := time.Parse(time.RFC3339Nano, gpsTime.String); err == nil {
+			p.Exif.GPSDateTime = &t
 		}
 	}
 	if gpsLat.Valid {
@@ -314,6 +340,10 @@ func upsertArgs(p model.Photo) []any {
 	if t := p.Exif.Time(); t != nil {
 		exifTime = t.Format(time.RFC3339Nano)
 	}
+	var gpsTime any
+	if p.Exif.GPSDateTime != nil {
+		gpsTime = p.Exif.GPSDateTime.UTC().Format(time.RFC3339Nano)
+	}
 
 	return []any{
 		p.CacheKey,
@@ -324,6 +354,8 @@ func upsertArgs(p model.Photo) []any {
 		nullIfZero(p.Exif.Width),
 		nullIfZero(p.Exif.Height),
 		exifTime,
+		nullString(p.Exif.OffsetTimeOriginal),
+		gpsTime,
 		nullFloat(p.Exif.GPSLatitude),
 		nullFloat(p.Exif.GPSLongitude),
 		nullFloat(p.Exif.Aperture),

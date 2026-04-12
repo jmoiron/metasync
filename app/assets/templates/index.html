@@ -89,6 +89,19 @@
                                 </button>
                             </div>
                         </div>
+                        <div class="lens-menu-row" data-lens="missing-gps-time">
+                            <div class="lens-menu-label">
+                                <span>Missing GPS Time</span>
+                            </div>
+                            <div class="lens-menu-actions">
+                                <button type="button" class="lens-icon-toggle" data-lens-action="highlight" data-lens="missing-gps-time" aria-pressed="true" title="Highlight missing GPS time">
+                                    <span class="fa-solid fa-marker" aria-hidden="true"></span>
+                                </button>
+                                <button type="button" class="lens-icon-toggle" data-lens-action="hide" data-lens="missing-gps-time" aria-pressed="false" title="Only show missing GPS time">
+                                    <span class="fa-solid fa-eye" aria-hidden="true"></span>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -99,6 +112,11 @@
                         <div class="sync-time-actions">
                             <button type="button" class="sync-btn" id="add-sync-pair">Add Pair</button>
                             <button type="button" class="sync-btn secondary" id="clear-sync-pairs">Clear Pairs</button>
+                        </div>
+                        <div class="sync-actions">
+                            <button type="button" class="sync-btn secondary" id="copy-timezone" title="Copy timezone from the selected reference image to the target scope without changing the local timestamp. This changes only the EXIF timezone offset on the target images." aria-label="Copy timezone from the selected reference image to the target scope without changing the local timestamp. This changes only the EXIF timezone offset on the target images.">Copy Timezone</button>
+                            <button type="button" class="sync-btn secondary" id="set-gps-time" title="Set GPS time on the target scope to the UTC instant represented by each target image's current local timestamp and timezone offset. This writes GPS UTC time without changing the local timestamp." aria-label="Set GPS time on the target scope to the UTC instant represented by each target image's current local timestamp and timezone offset. This writes GPS UTC time without changing the local timestamp.">Set GPS Time</button>
+                            <button type="button" class="sync-btn secondary" id="convert-timezone" title="Convert the target scope from its current timezone to the selected reference image's timezone while preserving the instant in time. This changes both the local timestamp and the EXIF timezone offset on the target images." aria-label="Convert the target scope from its current timezone to the selected reference image's timezone while preserving the instant in time. This changes both the local timestamp and the EXIF timezone offset on the target images.">Convert Timezone</button>
                         </div>
                         <div class="sync-pairs" id="sync-pairs"></div>
                         <div class="sync-status" id="sync-status">No sync pairs</div>
@@ -149,7 +167,10 @@
         <section class="pane" data-side="left">
             <div class="pane-header">
                 <h2>Targets</h2>
-                <div class="pane-summary" data-base-summary="{{.page.TargetSummary}}">{{.page.TargetSummary}}</div>
+                <div class="pane-header-meta">
+                    <div class="pane-summary" data-total-count="{{len .page.TargetPhotos}}">{{len .page.TargetPhotos}} of {{len .page.TargetPhotos}}</div>
+                    <select class="timezone-select" data-timezone-select aria-label="Target timezone view"></select>
+                </div>
             </div>
             <div class="timeline">
                 <div class="thumb-grid">
@@ -159,6 +180,7 @@
                     {{range .page.TargetPhotos}}
                     <div class="lens-wrap lens-unsaved" data-lens-wrap="unsaved">
                     <div class="lens-wrap lens-missing-gps" data-lens-wrap="missing-gps">
+                    <div class="lens-wrap lens-missing-gps-time" data-lens-wrap="missing-gps-time">
                     <div class="lens-wrap lens-selected" data-lens-wrap="selected">
                     <div
                         class="thumb photo-card"
@@ -172,6 +194,11 @@
                         data-resolution="{{.Exif.Resolution}}"
                         data-exif-time="{{.Exif.TimeDisplay}}"
                         data-base-exif-time="{{.Exif.TimeDisplay}}"
+                        data-exif-offset="{{.Exif.TimeOffsetDisplay}}"
+                        data-base-exif-offset="{{.Exif.TimeOffsetDisplay}}"
+                        data-gps-time="{{.Exif.GPSTimeAttr}}"
+                        data-base-gps-time="{{.Exif.GPSTimeAttr}}"
+                        data-gps-timezone="{{.Exif.GPSTimeZoneDisplay}}"
                         data-exif-gps="{{.Exif.GPSDisplay}}"
                         data-base-exif-gps="{{.Exif.GPSDisplay}}"
                         data-gps-lat="{{.Exif.GPSLatitudeAttr}}"
@@ -194,6 +221,7 @@
                     </div>
                     </div>
                     </div>
+                    </div>
                     {{end}}
                     {{else}}
                     <div class="empty-state">Choose a target directory to load images.</div>
@@ -204,6 +232,9 @@
                 <div class="metadata-toggle">
                     <button type="button" class="metadata-toggle-btn is-active" data-mode="exif">Exif</button>
                     <button type="button" class="metadata-toggle-btn" data-mode="map">Map</button>
+                    <button type="button" class="metadata-toggle-btn metadata-inspect-btn" data-action="inspect-exif" title="display full exif data by loading it from the file" aria-label="display full exif data by loading it from the file">
+                        <span class="fa-solid fa-file-circle-question" aria-hidden="true"></span>
+                    </button>
                 </div>
                 <div class="metadata-layout">
                     <div class="metadata-column">
@@ -244,7 +275,10 @@
         <section class="pane" data-side="right">
             <div class="pane-header">
                 <h2>References</h2>
-                <div class="pane-summary" data-base-summary="{{.page.ReferenceSummary}}">{{.page.ReferenceSummary}}</div>
+                <div class="pane-header-meta">
+                    <div class="pane-summary" data-total-count="{{len .page.ReferencePhotos}}">{{len .page.ReferencePhotos}} of {{len .page.ReferencePhotos}}</div>
+                    <select class="timezone-select" data-timezone-select aria-label="Reference timezone view"></select>
+                </div>
             </div>
             <div class="timeline">
                 <div class="thumb-grid">
@@ -254,6 +288,7 @@
                     {{range .page.ReferencePhotos}}
                     <div class="lens-wrap lens-unsaved" data-lens-wrap="unsaved">
                     <div class="lens-wrap lens-missing-gps" data-lens-wrap="missing-gps">
+                    <div class="lens-wrap lens-missing-gps-time" data-lens-wrap="missing-gps-time">
                     <div class="lens-wrap lens-selected" data-lens-wrap="selected">
                     <div
                         class="thumb photo-card"
@@ -267,6 +302,11 @@
                         data-resolution="{{.Exif.Resolution}}"
                         data-exif-time="{{.Exif.TimeDisplay}}"
                         data-base-exif-time="{{.Exif.TimeDisplay}}"
+                        data-exif-offset="{{.Exif.TimeOffsetDisplay}}"
+                        data-base-exif-offset="{{.Exif.TimeOffsetDisplay}}"
+                        data-gps-time="{{.Exif.GPSTimeAttr}}"
+                        data-base-gps-time="{{.Exif.GPSTimeAttr}}"
+                        data-gps-timezone="{{.Exif.GPSTimeZoneDisplay}}"
                         data-exif-gps="{{.Exif.GPSDisplay}}"
                         data-base-exif-gps="{{.Exif.GPSDisplay}}"
                         data-gps-lat="{{.Exif.GPSLatitudeAttr}}"
@@ -289,6 +329,7 @@
                     </div>
                     </div>
                     </div>
+                    </div>
                     {{end}}
                     {{else}}
                     <div class="empty-state">Choose a reference directory to load images.</div>
@@ -299,6 +340,9 @@
                 <div class="metadata-toggle">
                     <button type="button" class="metadata-toggle-btn is-active" data-mode="exif">Exif</button>
                     <button type="button" class="metadata-toggle-btn" data-mode="map">Map</button>
+                    <button type="button" class="metadata-toggle-btn metadata-inspect-btn" data-action="inspect-exif" title="display full exif data by loading it from the file" aria-label="display full exif data by loading it from the file">
+                        <span class="fa-solid fa-file-circle-question" aria-hidden="true"></span>
+                    </button>
                 </div>
                 <div class="metadata-layout">
                     <div class="metadata-column">
@@ -336,4 +380,27 @@
             </div>
         </section>
     </main>
+
+    <div class="exif-modal-backdrop" id="exif-modal" hidden>
+        <div class="exif-modal" role="dialog" aria-modal="true" aria-labelledby="exif-modal-title">
+            <div class="exif-modal-head">
+                <div class="exif-modal-heading">
+                    <strong id="exif-modal-title">Full EXIF Data</strong>
+                    <span class="exif-modal-path" id="exif-modal-path"></span>
+                </div>
+                <div class="exif-modal-actions">
+                    <button type="button" class="metadata-toggle-btn exif-modal-action" id="expand-all-exif" title="Expand all EXIF groups" aria-label="Expand all EXIF groups">
+                        <span class="fa-regular fa-square-plus" aria-hidden="true"></span>
+                    </button>
+                    <button type="button" class="metadata-toggle-btn exif-modal-action" id="collapse-all-exif" title="Collapse all EXIF groups" aria-label="Collapse all EXIF groups">
+                        <span class="fa-regular fa-square-minus" aria-hidden="true"></span>
+                    </button>
+                    <button type="button" class="metadata-toggle-btn exif-modal-action" id="dismiss-exif-modal" aria-label="Dismiss full exif view">
+                        <span class="fa-solid fa-circle-xmark" aria-hidden="true"></span>
+                    </button>
+                </div>
+            </div>
+            <div class="exif-modal-body" id="exif-modal-body"></div>
+        </div>
+    </div>
 </div>

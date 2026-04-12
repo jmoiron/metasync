@@ -82,6 +82,12 @@
 .fa-square {
   --fa: "\f0c8";
 }
+.fa-square-minus {
+  --fa: "\f146";
+}
+.fa-square-plus {
+  --fa: "\f0fe";
+}
 .fa-sun {
   --fa: "\f185";
 }
@@ -146,6 +152,9 @@
 }
 .fa-file {
   --fa: "\f15b";
+}
+.fa-file-circle-question {
+  --fa: "\e4ef";
 }
 .fa-filter {
   --fa: "\f0b0";
