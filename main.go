@@ -2,15 +2,18 @@ package main
 
 import (
 	"log/slog"
+	"net"
 	"os"
 
 	"github.com/spf13/pflag"
 
 	"github.com/jmoiron/metasync/app"
+	"github.com/jmoiron/metasync/xplat"
 )
 
 type options struct {
 	Listen         string
+	OpenBrowser    bool
 	Debug          bool
 	TargetPaths    []string
 	ReferencePaths []string
@@ -50,6 +53,7 @@ func main() {
 	slog.Info(
 		"starting metasync",
 		"listen", opts.Listen,
+		"open_browser", opts.OpenBrowser,
 		"debug", opts.Debug,
 		"targets", opts.TargetPaths,
 		"refs", opts.ReferencePaths,
@@ -58,7 +62,29 @@ func main() {
 		"workers", opts.Workers,
 		"batch_size", opts.BatchSize,
 	)
-	if err := srv.Run(); err != nil {
+
+	if !opts.OpenBrowser {
+		if err := srv.Run(); err != nil {
+			slog.Error("server stopped", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	listener, err := net.Listen("tcp", opts.Listen)
+	if err != nil {
+		slog.Error("starting listener", "err", err)
+		os.Exit(1)
+	}
+
+	url := browserURL(listener.Addr())
+	if err := xplat.OpenBrowser(url); err != nil {
+		slog.Warn("failed to open browser", "url", url, "err", err)
+	} else {
+		slog.Info("opened browser", "url", url)
+	}
+
+	if err := srv.Serve(listener); err != nil {
 		slog.Error("server stopped", "err", err)
 		os.Exit(1)
 	}
@@ -66,7 +92,8 @@ func main() {
 
 func parseFlags() options {
 	var opts options
-	pflag.StringVar(&opts.Listen, "listen", ":8080", "listen address")
+	pflag.StringVar(&opts.Listen, "listen", "127.0.0.1:8080", "listen address")
+	pflag.BoolVar(&opts.OpenBrowser, "open-browser", false, "open the metasync URL in the default browser after the server starts")
 	pflag.BoolVar(&opts.Debug, "debug", false, "enable debug logging")
 	pflag.StringArrayVar(&opts.TargetPaths, "target", nil, "path to a target photo directory; may be provided multiple times")
 	pflag.StringArrayVar(&opts.ReferencePaths, "ref", nil, "path to a reference photo directory; may be provided multiple times")
@@ -76,4 +103,16 @@ func parseFlags() options {
 	pflag.IntVar(&opts.BatchSize, "batch-size", 4, "number of files per EXIF extraction batch")
 	pflag.Parse()
 	return opts
+}
+
+func browserURL(addr net.Addr) string {
+	host, port, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return "http://localhost/"
+	}
+	switch host {
+	case "", "0.0.0.0", "::", "[::]":
+		host = "localhost"
+	}
+	return "http://" + net.JoinHostPort(host, port) + "/"
 }

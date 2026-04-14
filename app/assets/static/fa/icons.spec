@@ -40,6 +40,7 @@ fa-solid fa-comments
 fa-solid fa-paperclip
 fa-solid fa-file
 fa-solid fa-file-circle-question
+fa-solid fa-circle-check
 fa-solid fa-image
 fa-solid fa-calendar
 fa-solid fa-calendar-day
@@ -65,3 +66,4 @@ fa-solid fa-crosshairs
 fa-regular fa-object-group
 fa-solid fa-marker
 fa-solid fa-map-location-dot
+fa-regular fa-folder-open

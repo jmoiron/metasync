@@ -389,7 +389,7 @@ $(function() {
     function closeFloatingMenus() {
         activeHeaderMenu = '';
         $('.header-dropdown-menu').prop('hidden', true).removeClass('is-open');
-        $('[data-menu-target="scope-menu"], [data-menu-target="group-menu"], [data-menu-target="view-menu"]').removeClass('is-active').attr('aria-expanded', 'false');
+        $('[data-menu-target]').removeClass('is-active').attr('aria-expanded', 'false');
     }
 
     function toggleWorkPanel(panelName) {

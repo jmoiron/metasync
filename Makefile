@@ -1,3 +1,5 @@
+MAKEFLAGS += --no-print-directory
+
 GO ?= go
 GOIMPORTS ?= goimports
 

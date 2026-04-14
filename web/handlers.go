@@ -16,16 +16,18 @@ import (
 	"github.com/jmoiron/metasync/model"
 	"github.com/jmoiron/metasync/scan"
 	"github.com/jmoiron/metasync/store"
+	"github.com/jmoiron/metasync/xplat"
 )
 
 type PageConfig struct {
-	Debug           bool
-	TargetPaths     []string
-	ReferencePaths  []string
-	Recursive       bool
-	RefreshMetadata bool
-	Workers         int
-	BatchSize       int
+	Debug             bool
+	TargetPaths       []string
+	ReferencePaths    []string
+	DefaultBrowsePath string
+	Recursive         bool
+	RefreshMetadata   bool
+	Workers           int
+	BatchSize         int
 }
 
 type InitialState struct {
@@ -42,6 +44,22 @@ type Handlers struct {
 	initial InitialState
 }
 
+type DirectorySelectorState struct {
+	Path      string
+	Separator string
+	Segments  []xplat.PathSegment
+	Entries   []xplat.DirectoryEntry
+	Error     string
+}
+
+type DirectoryBrowseResponse struct {
+	Path      string                 `json:"path"`
+	Separator string                 `json:"separator"`
+	Segments  []xplat.PathSegment    `json:"segments"`
+	Entries   []xplat.DirectoryEntry `json:"entries"`
+	Error     string                 `json:"error,omitempty"`
+}
+
 func NewHandlers(reg *mtr.Registry, st *store.Store, cfg PageConfig, initial InitialState) *Handlers {
 	return &Handlers{reg: reg, store: st, cfg: cfg, initial: initial}
 }
@@ -50,22 +68,26 @@ func (h *Handlers) Index(w http.ResponseWriter, r *http.Request) {
 	targetPaths := firstNonEmptyList(queryList(r, "target"), h.cfg.TargetPaths)
 	referencePaths := firstNonEmptyList(queryList(r, "ref"), h.cfg.ReferencePaths)
 	recursive := queryBool(r, "recursive", h.cfg.Recursive)
+	targetSelector := h.selectorState(firstPath(targetPaths))
+	referenceSelector := h.selectorState(firstPath(referencePaths))
 
 	targetPhotos, referencePhotos, targetErr, referenceErr := h.resolveScan(targetPaths, referencePaths, recursive)
 
 	ctx := mtr.Ctx{
 		"title": "metasync",
 		"page": map[string]any{
-			"Debug":            h.cfg.Debug,
-			"TargetPaths":      targetPaths,
-			"ReferencePaths":   referencePaths,
-			"Recursive":        recursive,
-			"TargetPhotos":     targetPhotos,
-			"ReferencePhotos":  referencePhotos,
-			"TargetSummary":    summarizePhotos(targetPaths, targetPhotos, targetErr),
-			"ReferenceSummary": summarizePhotos(referencePaths, referencePhotos, referenceErr),
-			"TargetError":      errString(targetErr),
-			"ReferenceError":   errString(referenceErr),
+			"Debug":             h.cfg.Debug,
+			"TargetPaths":       targetPaths,
+			"ReferencePaths":    referencePaths,
+			"Recursive":         recursive,
+			"TargetPhotos":      targetPhotos,
+			"ReferencePhotos":   referencePhotos,
+			"TargetSelector":    targetSelector,
+			"ReferenceSelector": referenceSelector,
+			"TargetSummary":     summarizePhotos(targetPaths, targetPhotos, targetErr),
+			"ReferenceSummary":  summarizePhotos(referencePaths, referencePhotos, referenceErr),
+			"TargetError":       errString(targetErr),
+			"ReferenceError":    errString(referenceErr),
 		},
 	}
 
@@ -73,6 +95,31 @@ func (h *Handlers) Index(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+}
+
+func (h *Handlers) BrowseDirectories(w http.ResponseWriter, r *http.Request) {
+	result, err := xplat.BrowseDirectories(
+		firstNonEmpty(r.URL.Query().Get("path"), h.cfg.DefaultBrowsePath),
+		xplat.BrowseOptions{
+			ShowFiles:       queryBool(r, "show_files", false),
+			ShowHiddenPaths: queryBool(r, "show_hidden", false),
+		},
+	)
+	resp := DirectoryBrowseResponse{
+		Path:      result.Path,
+		Separator: result.Separator,
+		Segments:  result.Segments,
+		Entries:   result.Entries,
+	}
+	if err != nil {
+		resp.Error = err.Error()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusForbidden)
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (h *Handlers) resolveScan(targetPaths, referencePaths []string, recursive bool) ([]model.Photo, []model.Photo, error, error) {
@@ -335,6 +382,13 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func firstPath(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
 func firstNonEmptyList(values []string, fallback []string) []string {
 	if len(values) > 0 {
 		return values
@@ -365,5 +419,16 @@ func queryBool(r *http.Request, name string, fallback bool) bool {
 		return false
 	default:
 		return fallback
+	}
+}
+
+func (h *Handlers) selectorState(path string) DirectorySelectorState {
+	result, err := xplat.BrowseDirectories(firstNonEmpty(path, h.cfg.DefaultBrowsePath), xplat.BrowseOptions{})
+	return DirectorySelectorState{
+		Path:      result.Path,
+		Separator: result.Separator,
+		Segments:  result.Segments,
+		Entries:   result.Entries,
+		Error:     errString(err),
 	}
 }

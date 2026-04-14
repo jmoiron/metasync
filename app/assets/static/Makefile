@@ -1,7 +1,9 @@
+MAKEFLAGS += --no-print-directory
+
 LESSC ?= lessc
 
 STYLE_LESS := style.less
-STYLE_DEPS := $(STYLE_LESS) theme.less figtree.less
+STYLE_DEPS := $(STYLE_LESS) theme.less figtree.less directory-browser.less
 STYLE_CSS := style.css
 FA_DIR := fa
 

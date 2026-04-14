@@ -73,6 +73,9 @@
 .fa-copy {
   --fa: "\f0c5";
 }
+.fa-folder-open {
+  --fa: "\f07c";
+}
 .fa-handshake {
   --fa: "\f2b5";
 }
@@ -125,6 +128,9 @@
 }
 .fa-chevron-up {
   --fa: "\f077";
+}
+.fa-circle-check {
+  --fa: "\f058";
 }
 .fa-circle-info {
   --fa: "\f05a";

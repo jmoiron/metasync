@@ -169,9 +169,12 @@
                 <h2>Targets</h2>
                 <div class="pane-header-meta">
                     <div class="pane-summary" data-total-count="{{len .page.TargetPhotos}}">{{len .page.TargetPhotos}} of {{len .page.TargetPhotos}}</div>
+                    {{if .page.TargetPaths}}
                     <select class="timezone-select" data-timezone-select aria-label="Target timezone view"></select>
+                    {{end}}
                 </div>
             </div>
+            {{if .page.TargetPaths}}
             <div class="timeline">
                 <div class="thumb-grid">
                     {{if .page.TargetError}}
@@ -224,7 +227,7 @@
                     </div>
                     {{end}}
                     {{else}}
-                    <div class="empty-state">Choose a target directory to load images.</div>
+                    <div class="empty-state">No target images found in the selected directory.</div>
                     {{end}}
                 </div>
             </div>
@@ -270,6 +273,51 @@
                     </div>
                 </div>
             </div>
+            {{else}}
+            <div class="pane-browser-body">
+                <div
+                    class="directory-selector"
+                    data-directory-selector
+                    data-query-name="target"
+                    data-label="target"
+                    data-initial-path="{{.page.TargetSelector.Path}}"
+                    data-initial-error="{{.page.TargetSelector.Error}}"
+                >
+                    <div class="directory-selector-topline">
+                        <button type="button" class="directory-set-btn" data-directory-set>
+                            <span class="fa-solid fa-circle-check" aria-hidden="true"></span>
+                            <span>Set</span>
+                        </button>
+                        <div class="directory-breadcrumbs" data-directory-breadcrumbs aria-label="Target directory path"></div>
+                        <input type="text" class="directory-path-input" data-directory-path-input hidden spellcheck="false" autocomplete="off" aria-label="Target directory path input">
+                        <div class="directory-browser-actions">
+                            <button type="button" class="directory-browser-gear" data-directory-options-toggle aria-expanded="false" title="Browser options">
+                                <span class="fa-solid fa-gear" aria-hidden="true"></span>
+                            </button>
+                            <div class="directory-browser-menu" data-directory-options-menu hidden>
+                                <label class="browser-option-toggle">
+                                    <input type="checkbox" data-browser-show-files>
+                                    <span>Show Files</span>
+                                </label>
+                                <label class="browser-option-toggle">
+                                    <input type="checkbox" data-browser-show-hidden>
+                                    <span>Show Hidden Paths</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="directory-selector-status" data-directory-status>
+                        Choose a target directory to load images.
+                    </div>
+                    <div class="directory-selector-error" data-directory-error hidden></div>
+                    <div class="directory-entry-list" data-directory-entries></div>
+                    <div class="directory-search" data-directory-search hidden>
+                        <span class="fa-solid fa-magnifying-glass" aria-hidden="true"></span>
+                        <input type="text" class="directory-search-input" data-directory-search-input spellcheck="false" autocomplete="off" placeholder="Filter directories">
+                    </div>
+                </div>
+            </div>
+            {{end}}
         </section>
 
         <section class="pane" data-side="right">
@@ -277,9 +325,12 @@
                 <h2>References</h2>
                 <div class="pane-header-meta">
                     <div class="pane-summary" data-total-count="{{len .page.ReferencePhotos}}">{{len .page.ReferencePhotos}} of {{len .page.ReferencePhotos}}</div>
+                    {{if .page.ReferencePaths}}
                     <select class="timezone-select" data-timezone-select aria-label="Reference timezone view"></select>
+                    {{end}}
                 </div>
             </div>
+            {{if .page.ReferencePaths}}
             <div class="timeline">
                 <div class="thumb-grid">
                     {{if .page.ReferenceError}}
@@ -332,7 +383,7 @@
                     </div>
                     {{end}}
                     {{else}}
-                    <div class="empty-state">Choose a reference directory to load images.</div>
+                    <div class="empty-state">No reference images found in the selected directory.</div>
                     {{end}}
                 </div>
             </div>
@@ -378,6 +429,51 @@
                     </div>
                 </div>
             </div>
+            {{else}}
+            <div class="pane-browser-body">
+                <div
+                    class="directory-selector"
+                    data-directory-selector
+                    data-query-name="ref"
+                    data-label="reference"
+                    data-initial-path="{{.page.ReferenceSelector.Path}}"
+                    data-initial-error="{{.page.ReferenceSelector.Error}}"
+                >
+                    <div class="directory-selector-topline">
+                        <button type="button" class="directory-set-btn" data-directory-set>
+                            <span class="fa-solid fa-circle-check" aria-hidden="true"></span>
+                            <span>Set</span>
+                        </button>
+                        <div class="directory-breadcrumbs" data-directory-breadcrumbs aria-label="Reference directory path"></div>
+                        <input type="text" class="directory-path-input" data-directory-path-input hidden spellcheck="false" autocomplete="off" aria-label="Reference directory path input">
+                        <div class="directory-browser-actions">
+                            <button type="button" class="directory-browser-gear" data-directory-options-toggle aria-expanded="false" title="Browser options">
+                                <span class="fa-solid fa-gear" aria-hidden="true"></span>
+                            </button>
+                            <div class="directory-browser-menu" data-directory-options-menu hidden>
+                                <label class="browser-option-toggle">
+                                    <input type="checkbox" data-browser-show-files>
+                                    <span>Show Files</span>
+                                </label>
+                                <label class="browser-option-toggle">
+                                    <input type="checkbox" data-browser-show-hidden>
+                                    <span>Show Hidden Paths</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="directory-selector-status" data-directory-status>
+                        Choose a reference directory to load images.
+                    </div>
+                    <div class="directory-selector-error" data-directory-error hidden></div>
+                    <div class="directory-entry-list" data-directory-entries></div>
+                    <div class="directory-search" data-directory-search hidden>
+                        <span class="fa-solid fa-magnifying-glass" aria-hidden="true"></span>
+                        <input type="text" class="directory-search-input" data-directory-search-input spellcheck="false" autocomplete="off" placeholder="Filter directories">
+                    </div>
+                </div>
+            </div>
+            {{end}}
         </section>
     </main>
 

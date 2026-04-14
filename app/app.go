@@ -4,6 +4,7 @@ import (
 	"embed"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -15,6 +16,7 @@ import (
 	"github.com/jmoiron/metasync/scan"
 	"github.com/jmoiron/metasync/store"
 	"github.com/jmoiron/metasync/web"
+	"github.com/jmoiron/metasync/xplat"
 )
 
 //go:embed assets/templates/*.html
@@ -64,13 +66,14 @@ func New(cfg Config) (*App, error) {
 	}
 
 	pageCfg := web.PageConfig{
-		Debug:           cfg.Debug,
-		TargetPaths:     cfg.TargetPaths,
-		ReferencePaths:  cfg.ReferencePaths,
-		Recursive:       cfg.Recursive,
-		RefreshMetadata: cfg.RefreshMetadata,
-		Workers:         cfg.Workers,
-		BatchSize:       cfg.BatchSize,
+		Debug:             cfg.Debug,
+		TargetPaths:       cfg.TargetPaths,
+		ReferencePaths:    cfg.ReferencePaths,
+		DefaultBrowsePath: xplat.DefaultBrowsePath(),
+		Recursive:         cfg.Recursive,
+		RefreshMetadata:   cfg.RefreshMetadata,
+		Workers:           cfg.Workers,
+		BatchSize:         cfg.BatchSize,
 	}
 
 	exif.Configure(cfg.Workers, cfg.BatchSize)
@@ -88,6 +91,7 @@ func New(cfg Config) (*App, error) {
 
 	r.Get("/", h.Index)
 	r.Post("/apply", h.Apply)
+	r.Get("/browse", h.BrowseDirectories)
 	r.Get("/exif", h.InspectExif)
 	r.Get("/healthz", h.Healthz)
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
@@ -101,7 +105,15 @@ func New(cfg Config) (*App, error) {
 }
 
 func (a *App) Run() error {
-	return http.ListenAndServe(a.cfg.ListenAddr, a.router)
+	listener, err := net.Listen("tcp", a.cfg.ListenAddr)
+	if err != nil {
+		return err
+	}
+	return a.Serve(listener)
+}
+
+func (a *App) Serve(listener net.Listener) error {
+	return http.Serve(listener, a.router)
 }
 
 func preload(st *store.Store, cfg web.PageConfig) web.InitialState {

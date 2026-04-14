@@ -1,3 +1,5 @@
+MAKEFLAGS += --no-print-directory
+
 PYTHON ?= python3
 VENV_DIR := ve
 VENV_PYTHON := $(VENV_DIR)/bin/python3
