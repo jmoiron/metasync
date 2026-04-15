@@ -6,10 +6,13 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jmoiron/metasync/nominatim"
 	"github.com/jmoiron/monet/mtr"
+	"golang.org/x/time/rate"
 
 	"github.com/jmoiron/metasync/exif"
 	"github.com/jmoiron/metasync/model"
@@ -85,7 +88,10 @@ func New(cfg Config) (*App, error) {
 	hub := progress.NewHub()
 	go hub.Run()
 
-	h := web.NewHandlers(reg, st, pageCfg, initial, hub)
+	geocoder := nominatim.NewClient(nominatim.PublicURL, "metasync/1.0 (https://github.com/jmoiron/metasync; jlmoiron@gmail.com)")
+	geocoderLimiter := rate.NewLimiter(rate.Every(time.Second), 1)
+
+	h := web.NewHandlers(reg, st, pageCfg, initial, hub, geocoder, geocoderLimiter)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -97,6 +103,7 @@ func New(cfg Config) (*App, error) {
 	r.Get("/pane", h.Pane)
 	r.Post("/apply", h.Apply)
 	r.Post("/load", h.Load)
+	r.Post("/geolookup", h.GeoLookup)
 	r.Post("/timezone-offsets", h.TimezoneOffsets)
 	r.Get("/browse", h.BrowseDirectories)
 	r.Get("/image", h.Image)

@@ -1,14 +1,17 @@
 $(function() {
     var paneMaps = new WeakMap();
     var markerIcon = null;
+    var modalMapState = null;
     var defaultMapView = [20, 0];
     var defaultMapZoom = 2;
     var selectedPhotoZoom = 15;
+    var geoLookupStorageKey = 'geo-lookup-recent-results';
     var pairIDCounter = 1;
     var syncPairs = [];
     var adjustedTimesByTargetID = {};
     var gpsPreviewByTargetID = {};
     var mapPickMode = false;
+    var modalBackdropPointerDown = false;
     var collapsedGroups = {};
     var activeHeaderMenu = '';
     var workPanelState = {
@@ -16,6 +19,7 @@ $(function() {
         gps: false
     };
     var applyTaskState = null;
+    var geoLookupRequestSeq = 0;
     var targetSelectionAnchorID = '';
     var lensSettings = {
         unsaved: { highlight: true, hide: false },
@@ -370,6 +374,10 @@ $(function() {
             }
             inspectExifForCard($selected);
         });
+        $workspace.on('click', '[data-action="expand-map"]', function(evt) {
+            evt.preventDefault();
+            openGeoLookupModal($(this).closest('.pane'));
+        });
 
         $(document).on('click', '[data-action="show-set-gps-time-info"]', function(evt) {
             evt.preventDefault();
@@ -405,8 +413,13 @@ $(function() {
             setAllExifTreeNodesExpanded(false);
         });
 
+        $('#exif-modal').on('pointerdown', function(evt) {
+            modalBackdropPointerDown = $(evt.target).is('#exif-modal');
+        });
         $('#exif-modal').on('click', function(evt) {
-            if ($(evt.target).is('#exif-modal')) {
+            var shouldDismiss = modalBackdropPointerDown && $(evt.target).is('#exif-modal');
+            modalBackdropPointerDown = false;
+            if (shouldDismiss) {
                 hideExifModal();
             }
         });
@@ -1581,7 +1594,16 @@ $(function() {
             maxZoom: 19,
             attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         }).addTo(map);
+        var marker = L.marker(defaultMapView, { icon: getMarkerIcon() });
+        map.on('click', function(evt) {
+            handlePaneMapClick($pane, evt);
+        });
+        existing = { map: map, marker: marker };
+        paneMaps.set(paneEl, existing);
+        return existing;
+    }
 
+    function getMarkerIcon() {
         if (!markerIcon) {
             markerIcon = L.icon({
                 iconUrl: '/static/vendor/css/images/marker-icon.png',
@@ -1593,13 +1615,316 @@ $(function() {
                 shadowSize: [41, 41]
             });
         }
-        var marker = L.marker(defaultMapView, { icon: markerIcon });
+        return markerIcon;
+    }
+
+    function openGeoLookupModal($pane) {
+        var bodyHTML = [
+            '<div class="geo-lookup-modal">',
+            '<form class="geo-lookup-search" id="geo-lookup-form">',
+            '<input type="text" id="geo-lookup-input" spellcheck="false" autocomplete="off" placeholder="Search for a place">',
+            '<button type="submit" class="sync-btn">Search</button>',
+            '</form>',
+            '<div class="geo-lookup-status" id="geo-lookup-status">Click anywhere on the map or choose a result to stage GPS for the current scope.</div>',
+            '<div class="geo-lookup-layout">',
+            '<div class="geo-lookup-results" id="geo-lookup-results"></div>',
+            '<div class="geo-lookup-map-wrap"><div class="geo-lookup-map" id="geo-lookup-map"></div></div>',
+            '</div>',
+            '</div>'
+        ].join('');
+        showModalFrame('Map Search', '', bodyHTML, false, false, 'is-map-browser');
+        initializeGeoLookupModal($pane);
+    }
+
+    function initializeGeoLookupModal($pane) {
+        destroyGeoLookupModalMap();
+        var selected = selectedGeoLookupPoint($pane);
+        var center = selected ? [selected.lat, selected.lon] : defaultMapView;
+        var zoom = selected ? selectedPhotoZoom : defaultMapZoom;
+        var map = L.map('geo-lookup-map', { zoomControl: true }).setView(center, zoom);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(map);
+
+        modalMapState = {
+            map: map,
+            selectionMarker: L.marker(center, { icon: getMarkerIcon() }),
+            candidateLayer: L.layerGroup().addTo(map),
+            selectedIndex: -1,
+            candidates: []
+        };
+        if (selected) {
+            modalMapState.selectionMarker.addTo(map);
+            $('#geo-lookup-status').text('Showing current staged GPS for ' + selected.label + '. Search or click the map to adjust it.');
+        }
+        renderStoredGeoLookupResults();
+
         map.on('click', function(evt) {
-            handlePaneMapClick($pane, evt);
+            if (!evt || !evt.latlng) {
+                return;
+            }
+            applyGeoLookupSelection(Number(evt.latlng.lat), Number(evt.latlng.lng), 'map point');
         });
-        existing = { map: map, marker: marker };
-        paneMaps.set(paneEl, existing);
-        return existing;
+
+        $('#geo-lookup-form').on('submit', function(evt) {
+            evt.preventDefault();
+            runGeoLookupSearch();
+        });
+        $('#geo-lookup-results').on('click', '.geo-lookup-result', function() {
+            var storedIndex = $(this).attr('data-stored-geo-index');
+            if (storedIndex !== undefined) {
+                var storedEntries = loadStoredGeoLookupResults();
+                var storedEntry = storedEntries[Number(storedIndex)];
+                if (!storedEntry) {
+                    return;
+                }
+                $('#geo-lookup-input').val(String(storedEntry.query || ''));
+                renderGeoLookupResults(Array.isArray(storedEntry.candidates) ? storedEntry.candidates : [], String(storedEntry.query || ''));
+                return;
+            }
+            var index = Number($(this).attr('data-candidate-index'));
+            var candidate = modalMapState && modalMapState.candidates ? modalMapState.candidates[index] : null;
+            if (!candidate) {
+                return;
+            }
+            focusGeoLookupCandidate(index);
+            applyGeoLookupSelection(candidate.latitude, candidate.longitude, candidate.label);
+            if (Array.isArray(candidate.bounding_box) && candidate.bounding_box.length === 4) {
+                modalMapState.map.fitBounds([
+                    [candidate.bounding_box[0], candidate.bounding_box[2]],
+                    [candidate.bounding_box[1], candidate.bounding_box[3]]
+                ]);
+            } else {
+                modalMapState.map.setView([candidate.latitude, candidate.longitude], selectedPhotoZoom);
+            }
+        });
+
+        window.setTimeout(function() {
+            if (modalMapState && modalMapState.map) {
+                modalMapState.map.invalidateSize();
+            }
+            $('#geo-lookup-input').trigger('focus');
+        }, 0);
+    }
+
+    function selectedGeoLookupPoint($pane) {
+        var $selected = $pane && $pane.is(panes.reference.$pane) ? selectedCardForPane($pane) : activeTargetCard();
+        if (!$selected || $selected.length === 0) {
+            return null;
+        }
+        var lat = parseFloat($selected.attr('data-gps-lat'));
+        var lon = parseFloat($selected.attr('data-gps-lon'));
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+            return null;
+        }
+        return {
+            lat: lat,
+            lon: lon,
+            label: String($selected.attr('data-basename') || 'selected image')
+        };
+    }
+
+    function runGeoLookupSearch() {
+        var query = String($('#geo-lookup-input').val() || '').trim();
+        if (!query) {
+            $('#geo-lookup-status').text('Enter a place search first.');
+            return;
+        }
+
+        var requestID = geoLookupRequestSeq + 1;
+        geoLookupRequestSeq = requestID;
+        $('#geo-lookup-status').text('Searching for place candidates…');
+
+        fetch('/geolookup', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                query: query,
+                limit: 8
+            })
+        }).then(function(resp) {
+            if (!resp.ok) {
+                return resp.text().then(function(text) {
+                    throw new Error(text || ('HTTP ' + resp.status));
+                });
+            }
+            return resp.json();
+        }).then(function(resp) {
+            if (requestID !== geoLookupRequestSeq) {
+                return;
+            }
+            var candidates = resp && Array.isArray(resp.candidates) ? resp.candidates : [];
+            storeGeoLookupResults(query, candidates);
+            renderGeoLookupResults(candidates, query);
+        }).catch(function(err) {
+            if (requestID !== geoLookupRequestSeq) {
+                return;
+            }
+            $('#geo-lookup-status').text(err && err.message ? err.message : 'Failed to search places.');
+        });
+    }
+
+    function renderGeoLookupResults(candidates, queryLabel) {
+        if (!modalMapState || !modalMapState.map) {
+            return;
+        }
+        modalMapState.candidates = candidates.slice();
+        modalMapState.selectedIndex = -1;
+        modalMapState.candidateLayer.clearLayers();
+
+        var $results = $('#geo-lookup-results');
+        $results.empty();
+        if (candidates.length === 0) {
+            $results.append('<div class="geo-lookup-empty">No place candidates found.</div>');
+            $('#geo-lookup-status').text('No place candidates found.');
+            return;
+        }
+        if (queryLabel) {
+            $results.append(
+                $('<div class="geo-lookup-empty"></div>').text('Results for "' + queryLabel + '"')
+            );
+        }
+
+        var bounds = [];
+        candidates.forEach(function(candidate, index) {
+            var marker = L.marker([candidate.latitude, candidate.longitude], { icon: getMarkerIcon() });
+            marker.on('click', function() {
+                focusGeoLookupCandidate(index);
+                applyGeoLookupSelection(candidate.latitude, candidate.longitude, candidate.label);
+            });
+            marker.addTo(modalMapState.candidateLayer);
+            bounds.push([candidate.latitude, candidate.longitude]);
+
+            var meta = [];
+            if (candidate.class) {
+                meta.push(candidate.class);
+            }
+            if (candidate.type) {
+                meta.push(candidate.type);
+            }
+            meta.push(candidate.latitude.toFixed(5) + ', ' + candidate.longitude.toFixed(5));
+
+            $results.append(
+                $('<button type="button" class="geo-lookup-result"></button>')
+                    .attr('data-candidate-index', index)
+                    .append($('<span class="geo-lookup-result-title"></span>').text(candidate.label || 'Unnamed result'))
+                    .append($('<span class="geo-lookup-result-meta"></span>').text(meta.join(' • ')))
+            );
+        });
+        if (bounds.length > 1) {
+            modalMapState.map.fitBounds(bounds, { padding: [18, 18] });
+        } else {
+            modalMapState.map.setView(bounds[0], selectedPhotoZoom);
+        }
+        $('#geo-lookup-status').text('Found ' + candidates.length + ' place candidate' + (candidates.length === 1 ? '' : 's') + '.');
+    }
+
+    function renderStoredGeoLookupResults() {
+        var entries = loadStoredGeoLookupResults();
+        var $results = $('#geo-lookup-results');
+        $results.empty();
+        if (entries.length === 0) {
+            $results.append('<div class="geo-lookup-empty">Search for a place to see candidates here.</div>');
+            return;
+        }
+        entries.forEach(function(entry, idx) {
+            var label = String(entry.query || '').trim();
+            var count = Array.isArray(entry.candidates) ? entry.candidates.length : 0;
+            if (!label) {
+                return;
+            }
+            $results.append(
+                $('<button type="button" class="geo-lookup-result"></button>')
+                    .attr('data-stored-geo-index', idx)
+                    .append($('<span class="geo-lookup-result-title"></span>').text(label))
+                    .append($('<span class="geo-lookup-result-meta"></span>').text(count + ' cached candidate' + (count === 1 ? '' : 's')))
+            );
+        });
+        $('#geo-lookup-status').text('Showing recent place searches. Search again to refresh any entry.');
+    }
+
+    function loadStoredGeoLookupResults() {
+        var raw = localStorage.getItem(geoLookupStorageKey);
+        if (!raw) {
+            return [];
+        }
+        try {
+            var parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) {
+                return [];
+            }
+            return parsed.filter(function(entry) {
+                return entry && typeof entry.query === 'string' && Array.isArray(entry.candidates);
+            }).slice(0, 20);
+        } catch (err) {
+            return [];
+        }
+    }
+
+    function storeGeoLookupResults(query, candidates) {
+        var trimmedQuery = String(query || '').trim();
+        if (!trimmedQuery || !Array.isArray(candidates) || candidates.length === 0) {
+            return;
+        }
+        var entry = {
+            query: trimmedQuery,
+            candidates: candidates.map(function(candidate) {
+                return {
+                    label: String(candidate.label || ''),
+                    latitude: Number(candidate.latitude),
+                    longitude: Number(candidate.longitude),
+                    bounding_box: Array.isArray(candidate.bounding_box) ? candidate.bounding_box.slice(0, 4) : [],
+                    class: String(candidate.class || ''),
+                    type: String(candidate.type || '')
+                };
+            }).filter(function(candidate) {
+                return Number.isFinite(candidate.latitude) && Number.isFinite(candidate.longitude);
+            })
+        };
+        if (entry.candidates.length === 0) {
+            return;
+        }
+        var entries = loadStoredGeoLookupResults().filter(function(existing) {
+            return String(existing.query || '').trim().toLowerCase() !== trimmedQuery.toLowerCase();
+        });
+        entries.unshift(entry);
+        localStorage.setItem(geoLookupStorageKey, JSON.stringify(entries.slice(0, 20)));
+    }
+
+    function focusGeoLookupCandidate(index) {
+        modalMapState.selectedIndex = index;
+        $('#geo-lookup-results .geo-lookup-result').each(function() {
+            var $result = $(this);
+            $result.toggleClass('is-active', Number($result.attr('data-candidate-index')) === index);
+        });
+    }
+
+    function applyGeoLookupSelection(lat, lon, label) {
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+            $('#geo-lookup-status').text('Invalid map coordinate selected.');
+            return;
+        }
+        if (!setPreviewGPSForScope(lat, lon, 'map-search')) {
+            return;
+        }
+        if (modalMapState && modalMapState.map) {
+            modalMapState.selectionMarker.setLatLng([lat, lon]);
+            modalMapState.selectionMarker.addTo(modalMapState.map);
+        }
+        $('#geo-lookup-status').text('Previewed GPS from ' + (label || 'selected map location') + '.');
+    }
+
+    function destroyGeoLookupModalMap() {
+        geoLookupRequestSeq += 1;
+        if (!modalMapState || !modalMapState.map) {
+            modalMapState = null;
+            return;
+        }
+        modalMapState.map.remove();
+        modalMapState = null;
     }
 
     function handlePaneMapClick($pane, evt) {
@@ -2416,18 +2741,25 @@ $(function() {
         });
     }
 
-    function showModalFrame(title, path, bodyHTML, showTreeActions, compact) {
+    function showModalFrame(title, path, bodyHTML, showTreeActions, compact, extraClass) {
+        var $modal = $('#exif-modal .exif-modal');
         $('#exif-modal-title').text(title || '');
         $('#exif-modal-path').text(path || '').prop('hidden', !path);
         $('#exif-modal-body').html(bodyHTML || '');
         $('#expand-all-exif, #collapse-all-exif').prop('hidden', !showTreeActions);
-        $('#exif-modal .exif-modal').toggleClass('is-compact', !!compact);
+        $modal.removeClass('is-map-browser');
+        $modal.toggleClass('is-compact', !!compact);
+        if (extraClass) {
+            $modal.addClass(extraClass);
+        }
         $('#exif-modal').prop('hidden', false);
     }
 
     function hideExifModal() {
+        modalBackdropPointerDown = false;
+        destroyGeoLookupModalMap();
         $('#exif-modal').prop('hidden', true);
-        $('#exif-modal .exif-modal').removeClass('is-compact');
+        $('#exif-modal .exif-modal').removeClass('is-compact is-map-browser');
         $('#exif-modal-path').text('');
         $('#exif-modal-body').empty();
         $('#expand-all-exif, #collapse-all-exif').prop('hidden', false);

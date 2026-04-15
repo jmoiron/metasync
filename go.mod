@@ -7,11 +7,13 @@ require (
 	github.com/barasher/go-exiftool v1.10.0
 	github.com/coder/websocket v1.8.14
 	github.com/go-chi/chi/v5 v5.2.2
+	github.com/jmoiron/metasync/nominatim v0.0.0
 	github.com/jmoiron/monet v0.0.0
 	github.com/jmoiron/sqlx v1.2.0
 	github.com/mattn/go-sqlite3 v1.14.20
 	github.com/spf13/pflag v1.0.5
 	golang.org/x/image v0.30.0
+	golang.org/x/time v0.14.0
 )
 
 require (
@@ -23,3 +25,5 @@ require (
 )
 
 replace github.com/jmoiron/monet => ../monet
+
+replace github.com/jmoiron/metasync/nominatim => ./nominatim

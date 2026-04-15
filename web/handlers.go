@@ -13,13 +13,16 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Lionparcel/timezonemapper"
 	"github.com/coder/websocket"
 	"github.com/jmoiron/metasync/exif"
+	"github.com/jmoiron/metasync/nominatim"
 	"github.com/jmoiron/monet/mtr"
+	"golang.org/x/time/rate"
 
 	"github.com/jmoiron/metasync/model"
 	"github.com/jmoiron/metasync/progress"
@@ -47,11 +50,13 @@ type InitialState struct {
 }
 
 type Handlers struct {
-	reg     *mtr.Registry
-	store   *store.Store
-	cfg     PageConfig
-	initial InitialState
-	hub     *progress.Hub
+	reg             *mtr.Registry
+	store           *store.Store
+	cfg             PageConfig
+	initial         InitialState
+	hub             *progress.Hub
+	geocoder        *nominatim.Client
+	geocoderLimiter *rate.Limiter
 }
 
 type DirectorySelectorState struct {
@@ -121,8 +126,16 @@ type PaneRenderData struct {
 	PictureViewTotal int
 }
 
-func NewHandlers(reg *mtr.Registry, st *store.Store, cfg PageConfig, initial InitialState, hub *progress.Hub) *Handlers {
-	return &Handlers{reg: reg, store: st, cfg: cfg, initial: initial, hub: hub}
+func NewHandlers(reg *mtr.Registry, st *store.Store, cfg PageConfig, initial InitialState, hub *progress.Hub, geocoder *nominatim.Client, geocoderLimiter *rate.Limiter) *Handlers {
+	return &Handlers{
+		reg:             reg,
+		store:           st,
+		cfg:             cfg,
+		initial:         initial,
+		hub:             hub,
+		geocoder:        geocoder,
+		geocoderLimiter: geocoderLimiter,
+	}
 }
 
 func (h *Handlers) Index(w http.ResponseWriter, r *http.Request) {
@@ -214,6 +227,24 @@ type TimezoneLookupResult struct {
 	Offset    string `json:"offset,omitempty"`
 	LocalTime string `json:"local_time,omitempty"`
 	Error     string `json:"error,omitempty"`
+}
+
+type GeoLookupRequest struct {
+	Query string `json:"query"`
+	Limit int    `json:"limit,omitempty"`
+}
+
+type GeoLookupResponse struct {
+	Candidates []GeoLookupCandidate `json:"candidates"`
+}
+
+type GeoLookupCandidate struct {
+	Label       string    `json:"label"`
+	Latitude    float64   `json:"latitude"`
+	Longitude   float64   `json:"longitude"`
+	BoundingBox []float64 `json:"bounding_box,omitempty"`
+	Class       string    `json:"class,omitempty"`
+	Type        string    `json:"type,omitempty"`
 }
 
 func (h *Handlers) BrowseDirectories(w http.ResponseWriter, r *http.Request) {
@@ -330,6 +361,75 @@ func (h *Handlers) TimezoneOffsets(w http.ResponseWriter, r *http.Request) {
 			result.Error = "missing time context"
 		}
 		resp.Results = append(resp.Results, result)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (h *Handlers) GeoLookup(w http.ResponseWriter, r *http.Request) {
+	if h.geocoder == nil {
+		http.Error(w, "geocoder unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req GeoLookupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	query := strings.TrimSpace(req.Query)
+	if query == "" {
+		http.Error(w, "missing query", http.StatusBadRequest)
+		return
+	}
+
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 8
+	}
+	if limit > 10 {
+		limit = 10
+	}
+
+	if h.geocoderLimiter != nil {
+		if err := h.geocoderLimiter.Wait(r.Context()); err != nil {
+			http.Error(w, "geocoder rate limit interrupted", http.StatusRequestTimeout)
+			return
+		}
+	}
+
+	results, err := h.geocoder.Search(&nominatim.SearchQuery{
+		Q:              query,
+		Limit:          limit,
+		AddressDetails: true,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	resp := GeoLookupResponse{
+		Candidates: make([]GeoLookupCandidate, 0, len(results)),
+	}
+	for _, result := range results {
+		lat, err := strconv.ParseFloat(strings.TrimSpace(result.Lat), 64)
+		if err != nil {
+			continue
+		}
+		lon, err := strconv.ParseFloat(strings.TrimSpace(result.Lon), 64)
+		if err != nil {
+			continue
+		}
+		resp.Candidates = append(resp.Candidates, GeoLookupCandidate{
+			Label:       strings.TrimSpace(result.DisplayName),
+			Latitude:    lat,
+			Longitude:   lon,
+			BoundingBox: parseGeoLookupBoundingBox(result.BoundingBox),
+			Class:       strings.TrimSpace(result.Class),
+			Type:        strings.TrimSpace(result.Type),
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -773,6 +873,21 @@ func newID() string {
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(buf)
+}
+
+func parseGeoLookupBoundingBox(parts []string) []float64 {
+	if len(parts) == 0 {
+		return nil
+	}
+	values := make([]float64, 0, len(parts))
+	for _, part := range parts {
+		value, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
+		if err != nil {
+			return nil
+		}
+		values = append(values, value)
+	}
+	return values
 }
 
 func summarizePhotos(roots []string, photos []model.Photo, err error) string {

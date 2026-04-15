@@ -621,7 +621,7 @@ a:hover {
     display: grid;
     place-items: center;
     padding: 1.5rem;
-    z-index: 40;
+    z-index: 2000;
 }
 
 .exif-modal {
@@ -639,6 +639,11 @@ a:hover {
     width: min(36rem, calc(100vw - 3rem));
     height: auto;
     max-height: min(80vh, 32rem);
+}
+
+.exif-modal.is-map-browser {
+    width: min(86rem, calc(100vw - 3rem));
+    height: min(88vh, 60rem);
 }
 
 .exif-modal-head {
@@ -692,6 +697,99 @@ a:hover {
 .exif-modal-body p {
     margin: 1em 0.5em;
     line-height: 1.5;
+}
+
+.geo-lookup-modal {
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 0.9rem;
+}
+
+.geo-lookup-search {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.6rem;
+}
+
+.geo-lookup-search input {
+    border: 1px solid var(--border);
+    background: var(--input-bg);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.6rem 0.75rem;
+    min-width: 0;
+}
+
+.geo-lookup-status {
+    color: var(--muted);
+    min-height: 1.25rem;
+}
+
+.geo-lookup-layout {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(18rem, 24rem) minmax(0, 1fr);
+    gap: 0.9rem;
+}
+
+.geo-lookup-results {
+    min-height: 0;
+    overflow: auto;
+    display: grid;
+    align-content: start;
+    gap: 0.45rem;
+}
+
+.geo-lookup-empty {
+    color: var(--muted);
+    padding: 0.65rem 0.2rem;
+}
+
+.geo-lookup-result {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    text-align: left;
+    border-radius: 8px;
+    padding: 0.65rem 0.75rem;
+    display: grid;
+    gap: 0.2rem;
+    cursor: pointer;
+}
+
+.geo-lookup-result:hover,
+.geo-lookup-result.is-active {
+    border-color: var(--accent);
+    background: var(--hover-bg);
+}
+
+.geo-lookup-result-title {
+    font-weight: 600;
+}
+
+.geo-lookup-result-meta {
+    color: var(--muted);
+    font-size: 0.84rem;
+}
+
+.geo-lookup-map-wrap {
+    min-height: 0;
+    border: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.geo-lookup-map {
+    width: 100%;
+    height: 100%;
+    min-height: 24rem;
+}
+
+@media (max-width: 900px) {
+    .geo-lookup-layout {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 14rem) minmax(0, 1fr);
+    }
 }
 
 .exif-tree {
@@ -1288,8 +1386,23 @@ body.lens-missing-gps-time-highlight-active .lens-wrap[data-lens-wrap="missing-g
 }
 
 .map-panel {
+    position: relative;
     height: 100%;
     min-height: 100%;
+}
+
+.map-expand-link {
+    position: absolute;
+    top: 0.55rem;
+    right: 0.6rem;
+    z-index: 500;
+    color: var(--muted);
+    text-decoration: none;
+    line-height: 1;
+}
+
+.map-expand-link:hover {
+    color: var(--link);
 }
 
 .map-canvas {

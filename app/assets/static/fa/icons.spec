@@ -69,4 +69,5 @@ fa-solid fa-image
 fa-regular fa-object-group
 fa-solid fa-marker
 fa-solid fa-map-location-dot
+fa-solid fa-expand
 fa-regular fa-folder-open
