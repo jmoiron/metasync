@@ -412,7 +412,7 @@ func logWriteProgress(start time.Time, completed, total int) {
 func normalize(file exiftool.FileMetadata) model.ExifData {
 	dateTimeOriginal, offsetTimeOriginal := firstTimeWithOffset(file,
 		[]string{"DateTimeOriginal", "SubSecDateTimeOriginal"},
-		"OffsetTimeOriginal", "OffsetTime", "TimeZone",
+		"OffsetTimeOriginal", "OffsetTimeDigitized", "OffsetTime", "TimeZone", "Time Zone", "TimeZoneOffset",
 	)
 	return model.ExifData{
 		DateTimeOriginal:   dateTimeOriginal,
@@ -626,11 +626,36 @@ func normalizeOffset(value string) string {
 	if value == "" {
 		return ""
 	}
-	matched, _ := regexp.MatchString(`^[+-]\d{2}:\d{2}$`, value)
-	if matched {
+	if matched, _ := regexp.MatchString(`^[+-]\d{2}:\d{2}$`, value); matched {
 		return value
 	}
+	if matched, _ := regexp.MatchString(`^[+-]\d{4}$`, value); matched {
+		return value[:3] + ":" + value[3:]
+	}
+	if matched, _ := regexp.MatchString(`^[+-]\d{1,2}$`, value); matched {
+		hours := value[1:]
+		if len(hours) == 1 {
+			hours = "0" + hours
+		}
+		return value[:1] + hours + ":00"
+	}
+	if matched, _ := regexp.MatchString(`^[+-]\d{3}$`, value); matched {
+		if minutes, err := strconv.Atoi(value); err == nil {
+			return offsetFromMinutes(minutes)
+		}
+	}
 	return ""
+}
+
+func offsetFromMinutes(minutes int) string {
+	sign := "+"
+	if minutes < 0 {
+		sign = "-"
+		minutes = -minutes
+	}
+	hoursPart := minutes / 60
+	minutesPart := minutes % 60
+	return fmt.Sprintf("%s%02d:%02d", sign, hoursPart, minutesPart)
 }
 
 func offsetFromValue(value string) string {

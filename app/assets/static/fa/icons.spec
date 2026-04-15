@@ -40,6 +40,7 @@ fa-solid fa-comments
 fa-solid fa-paperclip
 fa-solid fa-file
 fa-solid fa-file-circle-question
+fa-solid fa-circle-question
 fa-solid fa-circle-check
 fa-solid fa-image
 fa-solid fa-calendar

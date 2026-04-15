@@ -104,26 +104,76 @@
                         </div>
                     </div>
                 </div>
+                <div class="header-panel-section">
+                    <div class="header-panel-title">Targets Pane</div>
+                    <div class="pane-view-menu">
+                        <div class="pane-view-row">
+                            <button type="button" class="pane-view-toggle" data-pane-view-toggle data-pane-view-side="target" data-pane-view-mode="thumbs" aria-pressed="false">
+                                <span class="pane-view-option pane-view-thumbs">Thumbs</span>
+                                <span class="pane-view-pill"></span>
+                                <span class="pane-view-option pane-view-preview">Preview</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="header-panel-section">
+                    <div class="header-panel-title">Refs Pane</div>
+                    <div class="pane-view-menu">
+                        <div class="pane-view-row">
+                            <button type="button" class="pane-view-toggle" data-pane-view-toggle data-pane-view-side="reference" data-pane-view-mode="thumbs" aria-pressed="false">
+                                <span class="pane-view-option pane-view-thumbs">Thumbs</span>
+                                <span class="pane-view-pill"></span>
+                                <span class="pane-view-option pane-view-preview">Preview</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="header-panel header-work-panel" id="work-menu" hidden>
                 <div class="sync-col" id="time-panel" hidden>
-                    <fieldset class="sync-fieldset">
-                        <legend>Time</legend>
-                        <div class="sync-time-actions">
-                            <button type="button" class="sync-btn" id="add-sync-pair">Add Pair</button>
-                            <button type="button" class="sync-btn secondary" id="clear-sync-pairs">Clear Pairs</button>
-                        </div>
-                        <div class="sync-actions">
-                            <button type="button" class="sync-btn secondary" id="copy-timezone" title="Copy timezone from the selected reference image to the target scope without changing the local timestamp. This changes only the EXIF timezone offset on the target images." aria-label="Copy timezone from the selected reference image to the target scope without changing the local timestamp. This changes only the EXIF timezone offset on the target images.">Copy Timezone</button>
-                            <button type="button" class="sync-btn secondary" id="set-gps-time" title="Set GPS time on the target scope to the UTC instant represented by each target image's current local timestamp and timezone offset. This writes GPS UTC time without changing the local timestamp." aria-label="Set GPS time on the target scope to the UTC instant represented by each target image's current local timestamp and timezone offset. This writes GPS UTC time without changing the local timestamp.">Set GPS Time</button>
-                            <button type="button" class="sync-btn secondary" id="convert-timezone" title="Convert the target scope from its current timezone to the selected reference image's timezone while preserving the instant in time. This changes both the local timestamp and the EXIF timezone offset on the target images." aria-label="Convert the target scope from its current timezone to the selected reference image's timezone while preserving the instant in time. This changes both the local timestamp and the EXIF timezone offset on the target images.">Convert Timezone</button>
-                        </div>
-                        <div class="sync-pairs" id="sync-pairs"></div>
-                        <div class="sync-status" id="sync-status">No sync pairs</div>
-                        <div class="sync-save-actions sync-panel-actions">
-                            <button type="button" class="sync-btn" id="apply-time">Apply Time</button>
-                        </div>
-                    </fieldset>
+                    <div class="time-tools-grid">
+                        <fieldset class="sync-fieldset">
+                            <legend>Sync</legend>
+                            <div class="sync-time-actions">
+                                <button type="button" class="sync-btn" id="add-sync-pair">Add Pair</button>
+                                <button type="button" class="sync-btn secondary" id="clear-sync-pairs">Clear Pairs</button>
+                            </div>
+                            <div class="sync-pairs" id="sync-pairs"></div>
+                            <div class="sync-status" id="sync-status">No sync pairs</div>
+                            <div class="sync-save-actions sync-panel-actions">
+                                <button type="button" class="sync-btn" id="apply-time">Apply</button>
+                            </div>
+                        </fieldset>
+                        <fieldset class="sync-fieldset">
+                            <legend>Fix</legend>
+                            <div class="time-fix-section">
+                                <div class="time-fix-row">
+                                    <button type="button" class="sync-btn secondary" id="set-gps-time">Set GPS Time</button>
+                                    <a href="#" class="time-fix-help" data-action="show-set-gps-time-info" aria-label="About Set GPS Time" title="About Set GPS Time">
+                                        <span class="fa-solid fa-circle-question" aria-hidden="true"></span>
+                                    </a>
+                                </div>
+                                <div class="time-fix-title">Timezone</div>
+                                <div class="timezone-fix-row">
+                                    <select class="timezone-fix-select" id="timezone-fix-mode" aria-label="Timezone action">
+                                        <option value="set">Set</option>
+                                        <option value="adjust">Adjust</option>
+                                    </select>
+                                    <span class="timezone-fix-word">from</span>
+                                    <select class="timezone-fix-select" id="timezone-fix-source" aria-label="Timezone source">
+                                        <option value="ref">Ref</option>
+                                        <option value="gps-coordinate">GPS Coordinate</option>
+                                        <option value="manual">Manual</option>
+                                    </select>
+                                    <input type="text" class="timezone-fix-input" id="timezone-fix-manual" hidden placeholder="+08:00" spellcheck="false" autocomplete="off" aria-label="Manual timezone offset">
+                                    <button type="button" class="sync-btn" id="apply-timezone-fix">Apply</button>
+                                    <a href="#" class="time-fix-help" data-action="show-timezone-fix-info" aria-label="About Timezone fixes" title="About Timezone fixes">
+                                        <span class="fa-solid fa-circle-question" aria-hidden="true"></span>
+                                    </a>
+                                </div>
+                            </div>
+                        </fieldset>
+                    </div>
                 </div>
                 <div class="sync-col" id="gps-panel" hidden>
                     <fieldset class="sync-fieldset">
@@ -137,18 +187,17 @@
                                 </select>
                             </label>
                             <label>
-                                <span>Cutoff (min)</span>
+                                <span title="Cutoff in minutes">Cutoff</span>
                                 <input type="number" id="gps-cutoff-minutes" min="1" value="30">
                             </label>
+                            <button type="button" class="sync-btn" id="apply-gps">Apply</button>
                         </div>
+                        <div class="time-fix-title">From</div>
                         <div class="sync-actions">
-                            <button type="button" class="sync-btn secondary" id="gps-from-reference">From Ref Image</button>
-                            <button type="button" class="sync-btn secondary" id="gps-from-prev-target">From Prev Target</button>
-                            <button type="button" class="sync-btn secondary" id="gps-from-next-target">From Next Target</button>
-                            <button type="button" class="sync-btn secondary" id="gps-from-map">From Map</button>
-                        </div>
-                        <div class="sync-save-actions sync-panel-actions">
-                            <button type="button" class="sync-btn" id="apply-gps">Apply GPS</button>
+                            <button type="button" class="sync-btn secondary" id="gps-from-reference">Ref Image</button>
+                            <button type="button" class="sync-btn secondary" id="gps-from-prev-target">Prev Target</button>
+                            <button type="button" class="sync-btn secondary" id="gps-from-next-target">Next Target</button>
+                            <button type="button" class="sync-btn secondary" id="gps-from-map">Map</button>
                         </div>
                     </fieldset>
                 </div>
@@ -167,9 +216,10 @@
         <section class="pane" data-side="left">
             <div class="pane-header">
                 <h2>
-                    Targets
+                    <span data-pane-title-default>Targets</span>
+                    <span data-pane-title-preview hidden>Preview</span>
                     {{if .page.TargetDirSegments}}
-                    <span class="pane-directory-path" title="{{.page.TargetDirPath}}">
+                    <span class="pane-directory-path" data-pane-title-path title="{{.page.TargetDirPath}}">
                         {{range $idx, $segment := .page.TargetDirSegments}}
                         {{if $idx}}<span class="pane-directory-separator">/</span>{{end}}
                         {{if $segment.Clickable}}
@@ -189,7 +239,8 @@
                 </div>
             </div>
             {{if and .page.TargetPaths (not .page.TargetBrowser)}}
-            <div class="timeline">
+            <div class="pane-media-view">
+            <div class="timeline pane-media-panel" data-pane-media="thumbs">
                 <div class="thumb-grid">
                     {{if .page.TargetError}}
                     <div class="empty-state error">{{.page.TargetError}}</div>
@@ -244,6 +295,13 @@
                     <div class="empty-state">No target images found in the selected directory.</div>
                     {{end}}
                 </div>
+            </div>
+            <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
+                <div class="pane-preview-empty empty-state" data-pane-preview-empty>
+                    Select a reference image to preview it here.
+                </div>
+                <img class="pane-preview-image" data-pane-preview-image hidden alt="">
+            </div>
             </div>
             <div class="metadata-panel">
                 <div class="metadata-toggle">
@@ -391,9 +449,10 @@
         <section class="pane" data-side="right">
             <div class="pane-header">
                 <h2>
-                    References
+                    <span data-pane-title-default>References</span>
+                    <span data-pane-title-preview hidden>Preview</span>
                     {{if .page.ReferenceDirSegments}}
-                    <span class="pane-directory-path" title="{{.page.ReferenceDirPath}}">
+                    <span class="pane-directory-path" data-pane-title-path title="{{.page.ReferenceDirPath}}">
                         {{range $idx, $segment := .page.ReferenceDirSegments}}
                         {{if $idx}}<span class="pane-directory-separator">/</span>{{end}}
                         {{if $segment.Clickable}}
@@ -413,7 +472,8 @@
                 </div>
             </div>
             {{if and .page.ReferencePaths (not .page.ReferenceBrowser)}}
-            <div class="timeline">
+            <div class="pane-media-view">
+            <div class="timeline pane-media-panel" data-pane-media="thumbs">
                 <div class="thumb-grid">
                     {{if .page.ReferenceError}}
                     <div class="empty-state error">{{.page.ReferenceError}}</div>
@@ -468,6 +528,13 @@
                     <div class="empty-state">No reference images found in the selected directory.</div>
                     {{end}}
                 </div>
+            </div>
+            <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
+                <div class="pane-preview-empty empty-state" data-pane-preview-empty>
+                    Select a target image to preview it here.
+                </div>
+                <img class="pane-preview-image" data-pane-preview-image hidden alt="">
+            </div>
             </div>
             <div class="metadata-panel">
                 <div class="metadata-toggle">

@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -144,6 +146,28 @@ type LoadResponse struct {
 	TaskID string `json:"task_id"`
 }
 
+type TimezoneLookupRequest struct {
+	Entries []TimezoneLookupEntry `json:"entries"`
+}
+
+type TimezoneLookupEntry struct {
+	ID        string `json:"id"`
+	Timezone  string `json:"timezone"`
+	LocalTime string `json:"local_time,omitempty"`
+	Instant   string `json:"instant,omitempty"`
+}
+
+type TimezoneLookupResponse struct {
+	Results []TimezoneLookupResult `json:"results"`
+}
+
+type TimezoneLookupResult struct {
+	ID        string `json:"id"`
+	Offset    string `json:"offset,omitempty"`
+	LocalTime string `json:"local_time,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
 func (h *Handlers) BrowseDirectories(w http.ResponseWriter, r *http.Request) {
 	result, err := xplat.BrowseDirectories(
 		firstNonEmpty(r.URL.Query().Get("path"), h.cfg.DefaultBrowsePath),
@@ -166,6 +190,75 @@ func (h *Handlers) BrowseDirectories(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusForbidden)
 	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (h *Handlers) Image(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "missing path", http.StatusBadRequest)
+		return
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		http.Error(w, "image not found", http.StatusNotFound)
+		return
+	}
+	if info.IsDir() {
+		http.Error(w, "path is a directory", http.StatusBadRequest)
+		return
+	}
+	if ctype := mime.TypeByExtension(strings.ToLower(filepath.Ext(path))); ctype != "" {
+		w.Header().Set("Content-Type", ctype)
+	}
+	http.ServeFile(w, r, path)
+}
+
+func (h *Handlers) TimezoneOffsets(w http.ResponseWriter, r *http.Request) {
+	var req TimezoneLookupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	resp := TimezoneLookupResponse{
+		Results: make([]TimezoneLookupResult, 0, len(req.Entries)),
+	}
+	for _, entry := range req.Entries {
+		result := TimezoneLookupResult{ID: entry.ID}
+		loc, err := time.LoadLocation(strings.TrimSpace(entry.Timezone))
+		if err != nil {
+			result.Error = "invalid timezone"
+			resp.Results = append(resp.Results, result)
+			continue
+		}
+
+		switch {
+		case entry.Instant != "":
+			t, err := time.Parse(time.RFC3339Nano, entry.Instant)
+			if err != nil {
+				result.Error = "invalid instant"
+				break
+			}
+			local := t.In(loc)
+			result.Offset = formatOffsetSeconds(local)
+			result.LocalTime = local.Format("2006-01-02 15:04:05")
+		case entry.LocalTime != "":
+			t, err := time.ParseInLocation("2006-01-02 15:04:05", entry.LocalTime, loc)
+			if err != nil {
+				result.Error = "invalid local_time"
+				break
+			}
+			result.Offset = formatOffsetSeconds(t)
+			result.LocalTime = t.Format("2006-01-02 15:04:05")
+		default:
+			result.Error = "missing time context"
+		}
+		resp.Results = append(resp.Results, result)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
@@ -716,6 +809,18 @@ func browserURL(r *http.Request, name string) string {
 		return r.URL.Path + "?" + encoded
 	}
 	return r.URL.Path
+}
+
+func formatOffsetSeconds(t time.Time) string {
+	_, seconds := t.Zone()
+	sign := "+"
+	if seconds < 0 {
+		sign = "-"
+		seconds = -seconds
+	}
+	hours := seconds / 3600
+	minutes := (seconds % 3600) / 60
+	return fmt.Sprintf("%s%02d:%02d", sign, hours, minutes)
 }
 
 func browserPathURL(r *http.Request, queryName, browserFlag, path string) string {
