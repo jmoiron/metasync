@@ -1,0 +1,183 @@
+<section class="pane" data-side="{{.pane.SectionSide}}">
+    <div class="pane-header">
+        <h2>
+            <span data-pane-title-default>{{.pane.HeaderTitle}}</span>
+            <span data-pane-title-preview hidden>Preview</span>
+            {{if .pane.DirSegments}}
+            <span class="pane-directory-path" data-pane-title-path title="{{.pane.DirPath}}">
+                {{range $idx, $segment := .pane.DirSegments}}
+                {{if $idx}}<span class="pane-directory-separator">/</span>{{end}}
+                {{if $segment.Clickable}}
+                <a class="pane-directory-link{{if $segment.Current}} is-current{{end}}" href="{{$segment.URL}}">{{$segment.Label}}</a>
+                {{else}}
+                <span class="pane-directory-name">{{$segment.Label}}</span>
+                {{end}}
+                {{end}}
+            </span>
+            {{end}}
+        </h2>
+        <div class="pane-header-meta">
+            <div class="pane-summary" data-total-count="{{.pane.PictureViewTotal}}">{{.pane.PictureViewTotal}} of {{.pane.PictureViewTotal}}</div>
+            {{if and .pane.Paths (not .pane.Browser)}}
+            <select class="timezone-select" data-timezone-select aria-label="{{.pane.TimezoneLabel}}"></select>
+            {{end}}
+        </div>
+    </div>
+    {{if and .pane.Paths (not .pane.Browser)}}
+    <div class="pane-media-view">
+        <div class="timeline pane-media-panel" data-pane-media="thumbs">
+            <div class="thumb-grid">
+                {{if .pane.Error}}
+                <div class="empty-state error">{{.pane.Error}}</div>
+                {{else if .pane.Photos}}
+                {{range .pane.Photos}}
+                <div class="lens-wrap lens-unsaved" data-lens-wrap="unsaved">
+                <div class="lens-wrap lens-missing-gps" data-lens-wrap="missing-gps">
+                <div class="lens-wrap lens-missing-gps-time" data-lens-wrap="missing-gps-time">
+                <div class="lens-wrap lens-selected" data-lens-wrap="selected">
+                <div
+                    class="thumb photo-card"
+                    data-photo-id="{{.ID}}"
+                    data-side="{{.Side}}"
+                    data-basename="{{.BaseName}}"
+                    data-path="{{.Path}}"
+                    data-relative-path="{{.RelativePath}}"
+                    data-size="{{.Size}}"
+                    data-modtime="{{.ModTime.Format "2006-01-02 15:04:05"}}"
+                    data-resolution="{{.Exif.Resolution}}"
+                    data-exif-time="{{.Exif.TimeDisplay}}"
+                    data-base-exif-time="{{.Exif.TimeDisplay}}"
+                    data-exif-offset="{{.Exif.TimeOffsetDisplay}}"
+                    data-base-exif-offset="{{.Exif.TimeOffsetDisplay}}"
+                    data-gps-time="{{.Exif.GPSTimeAttr}}"
+                    data-base-gps-time="{{.Exif.GPSTimeAttr}}"
+                    data-gps-timezone="{{.Exif.GPSTimeZoneDisplay}}"
+                    data-exif-gps="{{.Exif.GPSDisplay}}"
+                    data-base-exif-gps="{{.Exif.GPSDisplay}}"
+                    data-gps-lat="{{.Exif.GPSLatitudeAttr}}"
+                    data-gps-lon="{{.Exif.GPSLongitudeAttr}}"
+                    data-base-gps-lat="{{.Exif.GPSLatitudeAttr}}"
+                    data-base-gps-lon="{{.Exif.GPSLongitudeAttr}}"
+                    data-aperture="{{.Exif.ApertureDisplay}}"
+                    data-exposure="{{.Exif.ExposureDisplay}}"
+                    data-focal-length="{{.Exif.FocalLengthDisplay}}"
+                    data-iso="{{.Exif.ISODisplay}}"
+                    data-metering-mode="{{.Exif.MeteringModeDisplay}}"
+                    data-camera-model="{{.Exif.CameraModelDisplay}}"
+                >
+                    {{if .ThumbnailURL}}
+                    <img class="thumb-image" src="{{.ThumbnailURL}}" alt="{{.BaseName}}" loading="lazy">
+                    {{end}}
+                    <span class="thumb-gps-adjusted">GPS adjusted</span>
+                    <span class="thumb-title">{{.BaseName}}</span>
+                </div>
+                </div>
+                </div>
+                </div>
+                </div>
+                {{end}}
+                {{else}}
+                <div class="empty-state">{{.pane.EmptyStateText}}</div>
+                {{end}}
+            </div>
+        </div>
+        <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
+            <div class="pane-preview-empty empty-state" data-pane-preview-empty>
+                Select a {{.pane.PreviewLabel}} to preview it here.
+            </div>
+            <img class="pane-preview-image" data-pane-preview-image hidden alt="">
+        </div>
+    </div>
+    <div class="metadata-panel">
+        <div class="metadata-toggle">
+            <button type="button" class="metadata-toggle-btn is-active" data-mode="exif">Exif</button>
+            <button type="button" class="metadata-toggle-btn" data-mode="map">Map</button>
+            <button type="button" class="metadata-toggle-btn metadata-inspect-btn" data-action="inspect-exif" title="display full exif data by loading it from the file" aria-label="display full exif data by loading it from the file">
+                <span class="fa-solid fa-file-circle-question" aria-hidden="true"></span>
+            </button>
+        </div>
+        <div class="metadata-layout">
+            <div class="metadata-column">
+                <table class="metadata-table">
+                    <tbody>
+                        <tr><th>Filename</th><td data-field="basename">none selected</td></tr>
+                        <tr><th>Modified</th><td data-field="modtime">n/a</td></tr>
+                        <tr><th>Size</th><td data-field="size">n/a</td></tr>
+                        <tr><th>Resolution</th><td data-field="resolution">n/a</td></tr>
+                        <tr><th>EXIF time</th><td data-field="exif-time">n/a</td></tr>
+                        <tr><th>EXIF GPS</th><td data-field="exif-gps">n/a</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="metadata-column metadata-secondary">
+                <div class="metadata-secondary-panel is-active" data-panel="exif">
+                    <table class="metadata-table">
+                        <tbody>
+                            <tr><th>Camera</th><td data-field="camera-model">n/a</td></tr>
+                            <tr><th>ISO</th><td data-field="iso">n/a</td></tr>
+                            <tr><th>Aperture</th><td data-field="aperture">n/a</td></tr>
+                            <tr><th>Exposure</th><td data-field="exposure">n/a</td></tr>
+                            <tr><th>Focal len</th><td data-field="focal-length">n/a</td></tr>
+                            <tr><th>Metering</th><td data-field="metering-mode">n/a</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="metadata-secondary-panel" data-panel="map">
+                    <div class="map-panel">
+                        <div class="map-canvas" data-map-canvas></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {{else}}
+    <div class="pane-browser-body">
+        <div
+            class="directory-selector"
+            data-directory-selector
+            data-query-name="{{.pane.QueryName}}"
+            data-label="{{.pane.SelectorLabel}}"
+            data-initial-path="{{.pane.Selector.Path}}"
+            data-initial-error="{{.pane.Selector.Error}}"
+            data-initial-recursive="{{if .pane.Recursive}}true{{else}}false{{end}}"
+        >
+            <div class="directory-selector-topline">
+                <button type="button" class="directory-set-btn" data-directory-set>
+                    <span class="fa-solid fa-circle-check" aria-hidden="true"></span>
+                    <span>Set</span>
+                </button>
+                <div class="directory-breadcrumbs" data-directory-breadcrumbs aria-label="{{.pane.HeaderTitle}} directory path"></div>
+                <input type="text" class="directory-path-input" data-directory-path-input hidden spellcheck="false" autocomplete="off" aria-label="{{.pane.HeaderTitle}} directory path input">
+                <div class="directory-browser-actions">
+                    <button type="button" class="directory-browser-gear" data-directory-options-toggle aria-expanded="false" title="Browser options">
+                        <span class="fa-solid fa-gear" aria-hidden="true"></span>
+                    </button>
+                    <div class="directory-browser-menu" data-directory-options-menu hidden>
+                        <label class="browser-option-toggle">
+                            <input type="checkbox" data-browser-show-files>
+                            <span>Show Files</span>
+                        </label>
+                        <label class="browser-option-toggle">
+                            <input type="checkbox" data-browser-show-hidden>
+                            <span>Show Hidden Paths</span>
+                        </label>
+                        <label class="browser-option-toggle">
+                            <input type="checkbox" data-browser-recursive {{if .pane.Recursive}}checked{{end}}>
+                            <span>Recursive</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="directory-selector-status" data-directory-status>
+                Choose a {{.pane.SelectorLabel}} directory to load images.
+            </div>
+            <div class="directory-selector-error" data-directory-error hidden></div>
+            <div class="directory-entry-list" data-directory-entries></div>
+            <div class="directory-search" data-directory-search hidden>
+                <span class="fa-solid fa-magnifying-glass" aria-hidden="true"></span>
+                <input type="text" class="directory-search-input" data-directory-search-input spellcheck="false" autocomplete="off" placeholder="Filter directories">
+            </div>
+        </div>
+    </div>
+    {{end}}
+</section>

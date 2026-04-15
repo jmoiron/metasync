@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Lionparcel/timezonemapper"
 	"github.com/coder/websocket"
 	"github.com/jmoiron/metasync/exif"
 	"github.com/jmoiron/monet/mtr"
@@ -77,59 +78,104 @@ type HeaderPathSegment struct {
 	Clickable bool
 }
 
+type ViewState struct {
+	PageID               string
+	TargetPaths          []string
+	ReferencePaths       []string
+	Recursive            bool
+	TargetBrowser        bool
+	ReferenceBrowser     bool
+	TargetSelector       DirectorySelectorState
+	ReferenceSelector    DirectorySelectorState
+	TargetPhotos         []model.Photo
+	ReferencePhotos      []model.Photo
+	TargetError          error
+	ReferenceError       error
+	TargetDirPath        string
+	ReferenceDirPath     string
+	TargetDirSegments    []HeaderPathSegment
+	ReferenceDirSegments []HeaderPathSegment
+	TargetBrowseURL      string
+	ReferenceBrowseURL   string
+}
+
+type PaneRenderData struct {
+	SectionSide      string
+	Key              string
+	HeaderTitle      string
+	PreviewLabel     string
+	EmptyStateText   string
+	TimezoneLabel    string
+	QueryName        string
+	SelectorLabel    string
+	Browser          bool
+	Paths            []string
+	Selector         DirectorySelectorState
+	Recursive        bool
+	Photos           []model.Photo
+	Error            string
+	DirPath          string
+	DirSegments      []HeaderPathSegment
+	BrowseURL        string
+	PaneSummary      string
+	PictureViewTotal int
+}
+
 func NewHandlers(reg *mtr.Registry, st *store.Store, cfg PageConfig, initial InitialState, hub *progress.Hub) *Handlers {
 	return &Handlers{reg: reg, store: st, cfg: cfg, initial: initial, hub: hub}
 }
 
 func (h *Handlers) Index(w http.ResponseWriter, r *http.Request) {
-	pageID := newID()
-	targetPaths := firstNonEmptyList(queryList(r, "target"), h.cfg.TargetPaths)
-	referencePaths := firstNonEmptyList(queryList(r, "ref"), h.cfg.ReferencePaths)
-	recursive := queryBool(r, "recursive", h.cfg.Recursive)
-	targetBrowser := queryBool(r, "target_browser", false)
-	referenceBrowser := queryBool(r, "ref_browser", false)
-	targetSelector := h.selectorState(firstPath(targetPaths))
-	referenceSelector := h.selectorState(firstPath(referencePaths))
-
-	scanTargetPaths := targetPaths
-	if targetBrowser {
-		scanTargetPaths = nil
-	}
-	scanReferencePaths := referencePaths
-	if referenceBrowser {
-		scanReferencePaths = nil
-	}
-
-	targetPhotos, referencePhotos, targetErr, referenceErr := h.resolveScan(scanTargetPaths, scanReferencePaths, recursive)
+	state := h.viewState(r)
 
 	ctx := mtr.Ctx{
 		"title": "metasync",
 		"page": map[string]any{
-			"PageID":               pageID,
+			"PageID":               state.PageID,
 			"Debug":                h.cfg.Debug,
-			"TargetPaths":          targetPaths,
-			"ReferencePaths":       referencePaths,
-			"Recursive":            recursive,
-			"TargetPhotos":         targetPhotos,
-			"ReferencePhotos":      referencePhotos,
-			"TargetBrowser":        targetBrowser,
-			"ReferenceBrowser":     referenceBrowser,
-			"TargetSelector":       targetSelector,
-			"ReferenceSelector":    referenceSelector,
-			"TargetSummary":        summarizePhotos(targetPaths, targetPhotos, targetErr),
-			"ReferenceSummary":     summarizePhotos(referencePaths, referencePhotos, referenceErr),
-			"TargetError":          errString(targetErr),
-			"ReferenceError":       errString(referenceErr),
-			"TargetDirPath":        firstPath(targetPaths),
-			"ReferenceDirPath":     firstPath(referencePaths),
-			"TargetDirSegments":    headerPathSegments(r, "target", "target_browser", firstPath(targetPaths)),
-			"ReferenceDirSegments": headerPathSegments(r, "ref", "ref_browser", firstPath(referencePaths)),
-			"TargetBrowseURL":      browserURL(r, "target_browser"),
-			"ReferenceBrowseURL":   browserURL(r, "ref_browser"),
+			"TargetPaths":          state.TargetPaths,
+			"ReferencePaths":       state.ReferencePaths,
+			"Recursive":            state.Recursive,
+			"TargetPhotos":         state.TargetPhotos,
+			"ReferencePhotos":      state.ReferencePhotos,
+			"TargetBrowser":        state.TargetBrowser,
+			"ReferenceBrowser":     state.ReferenceBrowser,
+			"TargetSelector":       state.TargetSelector,
+			"ReferenceSelector":    state.ReferenceSelector,
+			"TargetSummary":        summarizePhotos(state.TargetPaths, state.TargetPhotos, state.TargetError),
+			"ReferenceSummary":     summarizePhotos(state.ReferencePaths, state.ReferencePhotos, state.ReferenceError),
+			"TargetError":          errString(state.TargetError),
+			"ReferenceError":       errString(state.ReferenceError),
+			"TargetDirPath":        state.TargetDirPath,
+			"ReferenceDirPath":     state.ReferenceDirPath,
+			"TargetDirSegments":    state.TargetDirSegments,
+			"ReferenceDirSegments": state.ReferenceDirSegments,
+			"TargetBrowseURL":      state.TargetBrowseURL,
+			"ReferenceBrowseURL":   state.ReferenceBrowseURL,
 		},
 	}
 
 	if err := h.reg.RenderWithBase(w, "base", "assets/templates/index.html", ctx); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *Handlers) Pane(w http.ResponseWriter, r *http.Request) {
+	side := r.URL.Query().Get("side")
+	if side != "target" && side != "reference" {
+		http.Error(w, "invalid side", http.StatusBadRequest)
+		return
+	}
+
+	state := h.viewState(r)
+	ctx := mtr.Ctx{
+		"title": "metasync",
+		"pane":  h.paneRenderData(side, state),
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.reg.Render(w, "assets/templates/pane.html", ctx); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -151,10 +197,12 @@ type TimezoneLookupRequest struct {
 }
 
 type TimezoneLookupEntry struct {
-	ID        string `json:"id"`
-	Timezone  string `json:"timezone"`
-	LocalTime string `json:"local_time,omitempty"`
-	Instant   string `json:"instant,omitempty"`
+	ID        string   `json:"id"`
+	Timezone  string   `json:"timezone,omitempty"`
+	Latitude  *float64 `json:"latitude,omitempty"`
+	Longitude *float64 `json:"longitude,omitempty"`
+	LocalTime string   `json:"local_time,omitempty"`
+	Instant   string   `json:"instant,omitempty"`
 }
 
 type TimezoneLookupResponse struct {
@@ -209,6 +257,23 @@ func (h *Handlers) Image(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path is a directory", http.StatusBadRequest)
 		return
 	}
+
+	if scan.IsRawPath(path) {
+		if h.store == nil {
+			http.Error(w, "preview cache unavailable", http.StatusInternalServerError)
+			return
+		}
+		cacheKey := h.store.Hash(path, info.ModTime())
+		previewPath, err := scan.EnsureRawPreview(path, h.store.CacheDir, cacheKey)
+		if err != nil {
+			http.Error(w, "failed to generate raw preview", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		http.ServeFile(w, r, previewPath)
+		return
+	}
+
 	if ctype := mime.TypeByExtension(strings.ToLower(filepath.Ext(path))); ctype != "" {
 		w.Header().Set("Content-Type", ctype)
 	}
@@ -227,7 +292,16 @@ func (h *Handlers) TimezoneOffsets(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, entry := range req.Entries {
 		result := TimezoneLookupResult{ID: entry.ID}
-		loc, err := time.LoadLocation(strings.TrimSpace(entry.Timezone))
+		timezone := strings.TrimSpace(entry.Timezone)
+		if timezone == "" && entry.Latitude != nil && entry.Longitude != nil {
+			timezone = timezonemapper.LatLngToTimezoneString(*entry.Latitude, *entry.Longitude)
+		}
+		if timezone == "" {
+			result.Error = "missing timezone"
+			resp.Results = append(resp.Results, result)
+			continue
+		}
+		loc, err := time.LoadLocation(timezone)
 		if err != nil {
 			result.Error = "invalid timezone"
 			resp.Results = append(resp.Results, result)
@@ -384,6 +458,97 @@ func (h *Handlers) resolveScan(targetPaths, referencePaths []string, recursive b
 	return targetPhotos, referencePhotos, targetErr, referenceErr
 }
 
+func (h *Handlers) viewState(r *http.Request) ViewState {
+	targetPaths := firstNonEmptyList(queryList(r, "target"), h.cfg.TargetPaths)
+	referencePaths := firstNonEmptyList(queryList(r, "ref"), h.cfg.ReferencePaths)
+	recursive := queryBool(r, "recursive", h.cfg.Recursive)
+	targetBrowser := queryBool(r, "target_browser", false)
+	referenceBrowser := queryBool(r, "ref_browser", false)
+	targetSelector := h.selectorState(firstPath(targetPaths))
+	referenceSelector := h.selectorState(firstPath(referencePaths))
+
+	scanTargetPaths := targetPaths
+	if targetBrowser {
+		scanTargetPaths = nil
+	}
+	scanReferencePaths := referencePaths
+	if referenceBrowser {
+		scanReferencePaths = nil
+	}
+
+	targetPhotos, referencePhotos, targetErr, referenceErr := h.resolveScan(scanTargetPaths, scanReferencePaths, recursive)
+
+	return ViewState{
+		PageID:               newID(),
+		TargetPaths:          targetPaths,
+		ReferencePaths:       referencePaths,
+		Recursive:            recursive,
+		TargetBrowser:        targetBrowser,
+		ReferenceBrowser:     referenceBrowser,
+		TargetSelector:       targetSelector,
+		ReferenceSelector:    referenceSelector,
+		TargetPhotos:         targetPhotos,
+		ReferencePhotos:      referencePhotos,
+		TargetError:          targetErr,
+		ReferenceError:       referenceErr,
+		TargetDirPath:        firstPath(targetPaths),
+		ReferenceDirPath:     firstPath(referencePaths),
+		TargetDirSegments:    headerPathSegments(r, "target", "target_browser", firstPath(targetPaths)),
+		ReferenceDirSegments: headerPathSegments(r, "ref", "ref_browser", firstPath(referencePaths)),
+		TargetBrowseURL:      browserURL(r, "target_browser"),
+		ReferenceBrowseURL:   browserURL(r, "ref_browser"),
+	}
+}
+
+func (h *Handlers) paneRenderData(side string, state ViewState) PaneRenderData {
+	switch side {
+	case "reference":
+		return PaneRenderData{
+			SectionSide:      "right",
+			Key:              "reference",
+			HeaderTitle:      "References",
+			PreviewLabel:     "target image",
+			EmptyStateText:   "No reference images found in the selected directory.",
+			TimezoneLabel:    "Reference timezone view",
+			QueryName:        "ref",
+			SelectorLabel:    "reference",
+			Browser:          state.ReferenceBrowser,
+			Paths:            state.ReferencePaths,
+			Selector:         state.ReferenceSelector,
+			Recursive:        state.Recursive,
+			Photos:           state.ReferencePhotos,
+			Error:            errString(state.ReferenceError),
+			DirPath:          state.ReferenceDirPath,
+			DirSegments:      state.ReferenceDirSegments,
+			BrowseURL:        state.ReferenceBrowseURL,
+			PaneSummary:      summarizePhotos(state.ReferencePaths, state.ReferencePhotos, state.ReferenceError),
+			PictureViewTotal: len(state.ReferencePhotos),
+		}
+	default:
+		return PaneRenderData{
+			SectionSide:      "left",
+			Key:              "target",
+			HeaderTitle:      "Targets",
+			PreviewLabel:     "reference image",
+			EmptyStateText:   "No target images found in the selected directory.",
+			TimezoneLabel:    "Target timezone view",
+			QueryName:        "target",
+			SelectorLabel:    "target",
+			Browser:          state.TargetBrowser,
+			Paths:            state.TargetPaths,
+			Selector:         state.TargetSelector,
+			Recursive:        state.Recursive,
+			Photos:           state.TargetPhotos,
+			Error:            errString(state.TargetError),
+			DirPath:          state.TargetDirPath,
+			DirSegments:      state.TargetDirSegments,
+			BrowseURL:        state.TargetBrowseURL,
+			PaneSummary:      summarizePhotos(state.TargetPaths, state.TargetPhotos, state.TargetError),
+			PictureViewTotal: len(state.TargetPhotos),
+		}
+	}
+}
+
 func (h *Handlers) Healthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{
@@ -392,6 +557,7 @@ func (h *Handlers) Healthz(w http.ResponseWriter, r *http.Request) {
 }
 
 type ApplyChangesRequest struct {
+	PageID  string            `json:"page_id"`
 	Changes []ApplyFileChange `json:"changes"`
 }
 
@@ -414,6 +580,10 @@ type ApplyChangesResponse struct {
 	Errors  []ApplyError `json:"errors"`
 }
 
+type ApplyStartResponse struct {
+	TaskID string `json:"task_id"`
+}
+
 type InspectExifResponse struct {
 	Path string         `json:"path"`
 	Data map[string]any `json:"data"`
@@ -425,29 +595,32 @@ func (h *Handlers) Apply(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
-
-	resp := ApplyChangesResponse{
-		Applied: make([]string, 0, len(req.Changes)),
-		Errors:  []ApplyError{},
+	if req.PageID == "" {
+		http.Error(w, "missing page_id", http.StatusBadRequest)
+		return
 	}
+
 	if len(req.Changes) == 0 {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(ApplyStartResponse{})
 		return
 	}
 
-	extractor, err := exif.New()
-	if err != nil {
-		http.Error(w, "failed to initialize exiftool", http.StatusInternalServerError)
-		return
-	}
-	defer extractor.Close()
+	writes, initialErrors := buildApplyWrites(req.Changes)
+	taskID := newID()
+	go h.runApplyTask(context.Background(), req.PageID, taskID, writes, initialErrors)
 
-	writes := make([]exif.FileWrite, 0, len(req.Changes))
-	for _, change := range req.Changes {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(ApplyStartResponse{TaskID: taskID})
+}
+
+func buildApplyWrites(changes []ApplyFileChange) ([]exif.FileWrite, []progress.ItemError) {
+	writes := make([]exif.FileWrite, 0, len(changes))
+	errors := make([]progress.ItemError, 0)
+	for _, change := range changes {
 		if change.Path == "" {
-			resp.Errors = append(resp.Errors, ApplyError{
-				Path:  "",
+			errors = append(errors, progress.ItemError{
+				Code:  "apply.path",
 				Error: "missing path",
 			})
 			continue
@@ -460,8 +633,9 @@ func (h *Handlers) Apply(w http.ResponseWriter, r *http.Request) {
 		if change.ExifTime != nil || change.ExifOffset != nil {
 			t, parseErr := parsePreviewTime(firstNonEmptyPtr(change.ExifTime), firstNonEmptyPtr(change.ExifOffset))
 			if parseErr != nil {
-				resp.Errors = append(resp.Errors, ApplyError{
+				errors = append(errors, progress.ItemError{
 					Path:  change.Path,
+					Code:  "apply.exif_time",
 					Error: "invalid exif time/offset format",
 				})
 				continue
@@ -471,8 +645,9 @@ func (h *Handlers) Apply(w http.ResponseWriter, r *http.Request) {
 		if change.GPSTime != nil {
 			t, parseErr := parseGPSTime(*change.GPSTime)
 			if parseErr != nil {
-				resp.Errors = append(resp.Errors, ApplyError{
+				errors = append(errors, progress.ItemError{
 					Path:  change.Path,
+					Code:  "apply.gps_time",
 					Error: "invalid gps_time format",
 				})
 				continue
@@ -483,25 +658,32 @@ func (h *Handlers) Apply(w http.ResponseWriter, r *http.Request) {
 		if writeReq.Time == nil && writeReq.GPSTime == nil && writeReq.GPSLatitude == nil && writeReq.GPSLongitude == nil {
 			continue
 		}
-		writes = append(writes, exif.FileWrite{
-			Path: change.Path,
-			Req:  writeReq,
-		})
+		writes = append(writes, exif.FileWrite{Path: change.Path, Req: writeReq})
+	}
+	return writes, errors
+}
+
+func (h *Handlers) runApplyTask(ctx context.Context, pageID, taskID string, writes []exif.FileWrite, initialErrors []progress.ItemError) {
+	tracker := progress.NewTracker(pageID, taskID, h.hub)
+	tracker.SetOperation("file.write", "targets", len(writes))
+	for _, item := range initialErrors {
+		tracker.Error(item)
+	}
+	if len(writes) == 0 {
+		tracker.Done()
+		return
 	}
 
-	for _, result := range extractor.WriteAll(writes) {
-		if result.Err != nil {
-			resp.Errors = append(resp.Errors, ApplyError{
-				Path:  result.Path,
-				Error: result.Err.Error(),
-			})
-			continue
-		}
-		resp.Applied = append(resp.Applied, result.Path)
+	extractor, err := exif.New()
+	if err != nil {
+		tracker.Fatal(fmt.Errorf("failed to initialize exiftool: %w", err))
+		return
 	}
+	defer extractor.Close()
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	_ = extractor.WriteAllWithProgress(writes, tracker)
+	_ = ctx
+	tracker.Done()
 }
 
 func (h *Handlers) InspectExif(w http.ResponseWriter, r *http.Request) {
@@ -806,9 +988,9 @@ func browserURL(r *http.Request, name string) string {
 	query := copyQuery(r.URL.Query())
 	query.Set(name, "1")
 	if encoded := query.Encode(); encoded != "" {
-		return r.URL.Path + "?" + encoded
+		return appURLPath(r) + "?" + encoded
 	}
-	return r.URL.Path
+	return appURLPath(r)
 }
 
 func formatOffsetSeconds(t time.Time) string {
@@ -829,7 +1011,14 @@ func browserPathURL(r *http.Request, queryName, browserFlag, path string) string
 	query.Del(queryName)
 	query.Add(queryName, path)
 	if encoded := query.Encode(); encoded != "" {
-		return r.URL.Path + "?" + encoded
+		return appURLPath(r) + "?" + encoded
+	}
+	return appURLPath(r)
+}
+
+func appURLPath(r *http.Request) string {
+	if r == nil || r.URL == nil || r.URL.Path == "" || r.URL.Path == "/pane" {
+		return "/"
 	}
 	return r.URL.Path
 }

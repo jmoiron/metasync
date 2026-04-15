@@ -1,10 +1,10 @@
 <div class="app-shell">
     <header class="topbar">
         <div class="title-row">
-            <h1>metasync</h1>
+            <h1 id="app-title" title="Reconnect websocket">metasync</h1>
             <div class="topbar-actions">
                 <button class="menu-link" id="scope-toggle" type="button" data-menu-target="scope-menu" aria-expanded="false">
-                    <span class="fa-solid fa-crosshairs" aria-hidden="true"></span>
+                    <span class="fa-solid fa-star-of-life" id="scope-toggle-icon" aria-hidden="true"></span>
                     <span>Scope</span>
                 </button>
                 <button class="menu-link" id="group-toggle" type="button" data-menu-target="group-menu" aria-expanded="false">
@@ -36,14 +36,25 @@
         </div>
         <div class="header-menus" id="header-menus">
             <div class="header-dropdown header-dropdown-menu" id="scope-menu" hidden>
-                <label class="header-dropdown-field">
-                    <span>Scope</span>
-                    <select id="scope">
-                        <option value="global">Global</option>
-                        <option value="session">Session</option>
-                        <option value="image">Image</option>
-                    </select>
-                </label>
+                <div class="scope-menu" role="menu" aria-label="Scope">
+                    <button type="button" class="scope-menu-item" data-scope-value="global" title="apply modifications to all images">
+                        <span class="scope-menu-icon fa-solid fa-star-of-life" aria-hidden="true"></span>
+                        <span class="scope-menu-label">All</span>
+                    </button>
+                    <button type="button" class="scope-menu-item" data-scope-value="session" title="apply modifications to the selected image's session">
+                        <span class="scope-menu-icon fa-regular fa-object-group" aria-hidden="true"></span>
+                        <span class="scope-menu-label">Session</span>
+                    </button>
+                    <button type="button" class="scope-menu-item" data-scope-value="image" title="apply modifications to the selected image(s)">
+                        <span class="scope-menu-icon fa-solid fa-image" aria-hidden="true"></span>
+                        <span class="scope-menu-label">Image</span>
+                    </button>
+                </div>
+                <select id="scope" hidden>
+                    <option value="global">All</option>
+                    <option value="session">Session</option>
+                    <option value="image">Image</option>
+                </select>
             </div>
             <div class="header-dropdown header-dropdown-menu" id="group-menu" hidden>
                 <label class="header-dropdown-field">
@@ -205,7 +216,9 @@
             <div class="apply-results" id="apply-results" hidden>
                 <div class="apply-results-head">
                     <strong>Apply Results</strong>
-                    <button type="button" class="sync-pair-remove" id="dismiss-apply-results" aria-label="Dismiss results">x</button>
+                    <button type="button" class="dismiss-btn" id="dismiss-apply-results" aria-label="Dismiss results">
+                        <span class="fa-solid fa-circle-xmark" aria-hidden="true"></span>
+                    </button>
                 </div>
                 <div class="apply-results-body" id="apply-results-body"></div>
             </div>
@@ -694,7 +707,7 @@
                     <button type="button" class="metadata-toggle-btn exif-modal-action" id="collapse-all-exif" title="Collapse all EXIF groups" aria-label="Collapse all EXIF groups">
                         <span class="fa-regular fa-square-minus" aria-hidden="true"></span>
                     </button>
-                    <button type="button" class="metadata-toggle-btn exif-modal-action" id="dismiss-exif-modal" aria-label="Dismiss full exif view">
+                    <button type="button" class="metadata-toggle-btn exif-modal-action dismiss-btn" id="dismiss-exif-modal" aria-label="Dismiss full exif view">
                         <span class="fa-solid fa-circle-xmark" aria-hidden="true"></span>
                     </button>
                 </div>

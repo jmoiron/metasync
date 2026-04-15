@@ -69,6 +69,15 @@ a:hover {
     letter-spacing: -0.03em;
 }
 
+#app-title {
+    cursor: pointer;
+    transition: color 0.2s ease, text-shadow 0.2s ease;
+}
+
+#app-title.is-disconnected {
+    text-shadow: 0 0 10px rgba(208, 48, 48, 0.8);
+}
+
 .menu-link {
     display: inline-flex;
     align-items: center;
@@ -123,6 +132,48 @@ a:hover {
 .header-dropdown-field {
     display: grid;
     gap: 0.35rem;
+}
+
+.scope-menu {
+    display: grid;
+    gap: 0.3rem;
+    min-width: 14rem;
+}
+
+.scope-menu-item {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 0.65rem;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0.3rem 0.35rem;
+    text-align: left;
+    border-radius: 6px;
+}
+
+.scope-menu-item:hover {
+    background: var(--hover-bg);
+}
+
+.scope-menu-item.is-selected {
+    color: var(--text);
+}
+
+.scope-menu-item .scope-menu-icon {
+    font-size: 0.95rem;
+}
+
+.scope-menu-item.is-selected .scope-menu-icon,
+.scope-menu-item.is-selected .scope-menu-label {
+    color: var(--accent);
+}
+
+.scope-menu-label {
+    color: inherit;
+    font-weight: 600;
 }
 
 .header-dropdown-field span,
@@ -616,11 +667,6 @@ a:hover {
     box-shadow: none;
 }
 
-.metadata-toggle-btn.exif-modal-action:hover {
-    background: var(--hover-bg);
-    color: var(--text);
-}
-
 .exif-modal-heading {
     display: grid;
     gap: 0.2rem;
@@ -744,18 +790,22 @@ a:hover {
     font-family: monospace;
 }
 
-.sync-pair-remove {
-    border: 1px solid var(--border);
+.dismiss-btn {
+    border: 0;
     background: transparent;
     color: var(--muted);
     border-radius: 999px;
-    padding: 0.12rem 0.48rem;
+    padding: 0.12rem;
     cursor: pointer;
+    display: inline-grid;
+    place-items: center;
+    min-width: 1.25rem;
+    min-height: 1.25rem;
 }
 
-.sync-pair-remove:hover {
+.dismiss-btn:hover {
     color: var(--text);
-    border-color: var(--text);
+    background: transparent;
 }
 
 .workspace {

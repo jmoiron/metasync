@@ -64,6 +64,8 @@ fa-solid fa-sort-down
 fa-solid fa-filter
 fa-solid fa-bookmark
 fa-solid fa-crosshairs
+fa-solid fa-star-of-life
+fa-solid fa-image
 fa-regular fa-object-group
 fa-solid fa-marker
 fa-solid fa-map-location-dot

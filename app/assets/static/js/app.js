@@ -15,6 +15,7 @@ $(function() {
         time: false,
         gps: false
     };
+    var applyTaskState = null;
     var targetSelectionAnchorID = '';
     var lensSettings = {
         unsaved: { highlight: true, hide: false },
@@ -38,6 +39,7 @@ $(function() {
 
     applyTheme(localStorage.getItem('theme') || 'light');
     initializeTimezoneSelectors();
+    initializeScopeControl();
     bindBasicControls();
     bindHeaderMenus();
     bindPaneViewControls();
@@ -45,11 +47,14 @@ $(function() {
     bindMetadataToggle();
     bindSyncControls();
     bindLensControls();
+    bindProgressTracking();
     renderGroups();
     refreshSyncUI();
     hideApplyResults();
     applyLensHighlightState();
     syncPaneViews();
+    window.metasyncUI = window.metasyncUI || {};
+    window.metasyncUI.loadPane = loadPane;
 
     function buildPaneState($pane, sideName) {
         var cards = [];
@@ -126,6 +131,20 @@ $(function() {
             applyTheme(next);
         });
 
+        $('#scope').on('change', function() {
+            var value = String($(this).val() || 'global');
+            localStorage.setItem('scope', value);
+            syncScopeUI();
+            if (value !== 'image') {
+                collapseTargetSelectionToAnchor();
+            }
+            renderGroups();
+        });
+
+        $(document).on('click', '.scope-menu-item', function() {
+            setScopeValue(String($(this).attr('data-scope-value') || 'global'));
+        });
+
         $workspace.on('change', '[data-timezone-select]', function() {
             var $pane = $(this).closest('.pane');
             var pane = $pane.is(panes.target.$pane) ? panes.target : panes.reference;
@@ -134,6 +153,64 @@ $(function() {
                 updatePaneMetadataFromCard($pane, $selected);
             }
         });
+
+        $workspace.on('click', '.pane-directory-link', function(evt) {
+            if (!window.metasyncUI || typeof window.metasyncUI.loadPane !== 'function') {
+                return;
+            }
+            evt.preventDefault();
+            var $pane = $(this).closest('.pane');
+            var side = $pane.is(panes.target.$pane) ? 'target' : 'reference';
+            var href = String($(this).attr('href') || '');
+            if (!href) {
+                return;
+            }
+            loadPane(side, href);
+        });
+    }
+
+    function initializeScopeControl() {
+        var stored = localStorage.getItem('scope');
+        var current = String($('#scope').val() || 'global');
+        setScopeValue(isValidScopeValue(stored) ? stored : current, false);
+    }
+
+    function setScopeValue(value, triggerChange) {
+        var next = isValidScopeValue(value) ? value : 'global';
+        var $scope = $('#scope');
+        $scope.val(next);
+        localStorage.setItem('scope', next);
+        syncScopeUI();
+        if (triggerChange !== false) {
+            $scope.trigger('change');
+        }
+    }
+
+    function isValidScopeValue(value) {
+        return value === 'global' || value === 'session' || value === 'image';
+    }
+
+    function syncScopeUI() {
+        var value = String($('#scope').val() || 'global');
+        $('.scope-menu-item').each(function() {
+            var $item = $(this);
+            $item.toggleClass('is-selected', String($item.attr('data-scope-value') || '') === value);
+        });
+        var iconClass = scopeIconClass(value);
+        $('#scope-toggle-icon')
+            .removeClass('fa-crosshairs fa-star-of-life fa-object-group fa-image fa-regular fa-solid')
+            .addClass(iconClass);
+    }
+
+    function scopeIconClass(value) {
+        switch (value) {
+        case 'session':
+            return 'fa-regular fa-object-group';
+        case 'image':
+            return 'fa-solid fa-image';
+        default:
+            return 'fa-solid fa-star-of-life';
+        }
     }
 
     function bindHeaderMenus() {
@@ -336,13 +413,6 @@ $(function() {
     }
 
     function bindSyncControls() {
-        $('#scope').on('change', function() {
-            if (String($(this).val() || 'global') !== 'image') {
-                collapseTargetSelectionToAnchor();
-            }
-            renderGroups();
-        });
-
         $('#grouping-mode').on('change', function() {
             renderGroups();
         });
@@ -469,6 +539,94 @@ $(function() {
         });
     }
 
+    function bindProgressTracking() {
+        $(document).on('metasync:progress', function(evt) {
+            var snap = evt.originalEvent && evt.originalEvent.detail ? evt.originalEvent.detail : evt.detail;
+            if (!snap || !snap.task_id || !applyTaskState || String(applyTaskState.taskID || '') !== String(snap.task_id || '')) {
+                return;
+            }
+            handleApplyTaskProgress(snap);
+        });
+    }
+
+    function loadPane(side, nextURL) {
+        var resolvedSide = side === 'reference' ? 'reference' : 'target';
+        var url = new URL(nextURL, window.location.origin);
+        if (url.pathname === '/pane') {
+            url.pathname = '/';
+            url.searchParams.delete('side');
+        }
+        var paneURL = new URL('/pane', window.location.origin);
+        paneURL.search = url.search;
+        paneURL.searchParams.set('side', resolvedSide);
+
+        return fetch(paneURL.toString(), {
+            method: 'GET',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        }).then(function(resp) {
+            if (!resp.ok) {
+                return resp.text().then(function(text) {
+                    throw new Error(text || ('HTTP ' + resp.status));
+                });
+            }
+            return resp.text();
+        }).then(function(html) {
+            replacePane(resolvedSide, html);
+            window.history.replaceState({}, '', url.toString());
+        }).catch(function() {
+            window.location.href = url.toString();
+        });
+    }
+
+    function replacePane(side, html) {
+        var pane = side === 'reference' ? panes.reference : panes.target;
+        if (!pane || !pane.$pane || pane.$pane.length === 0) {
+            return;
+        }
+
+        teardownPane(pane.$pane);
+        var $nextPane = $(html.trim());
+        pane.$pane.replaceWith($nextPane);
+        panes[side] = buildPaneState($nextPane, side);
+        if (side === 'target') {
+            targetSelectionAnchorID = '';
+        }
+
+        if (window.metasyncDirectoryBrowser && typeof window.metasyncDirectoryBrowser.init === 'function') {
+            window.metasyncDirectoryBrowser.init($nextPane);
+        }
+        resetDerivedStateForPaneChange();
+        initializeTimezoneSelectors();
+        renderGroups();
+        applyLensHighlightState();
+        updateReferenceNeighborHighlightForSelection();
+        syncPaneViews();
+    }
+
+    function teardownPane($pane) {
+        var paneEl = $pane && $pane.length > 0 ? $pane.get(0) : null;
+        if (!paneEl) {
+            return;
+        }
+        var mapState = paneMaps.get(paneEl);
+        if (mapState && mapState.map && typeof mapState.map.remove === 'function') {
+            mapState.map.remove();
+        }
+        paneMaps.delete(paneEl);
+    }
+
+    function resetDerivedStateForPaneChange() {
+        syncPairs = [];
+        adjustedTimesByTargetID = {};
+        gpsPreviewByTargetID = {};
+        targetSelectionAnchorID = '';
+        refreshSyncUI();
+        hideApplyResults();
+        updateSaveButtonVisibility();
+    }
+
     function toggleHeaderMenu(menuID) {
         if (!menuID) {
             closeFloatingMenus();
@@ -478,8 +636,8 @@ $(function() {
             closeFloatingMenus();
             return;
         }
-        activeHeaderMenu = menuID;
         closeFloatingMenus();
+        activeHeaderMenu = menuID;
         $('#' + menuID).prop('hidden', false).addClass('is-open');
         $('[data-menu-target="' + menuID + '"]').addClass('is-active').attr('aria-expanded', 'true');
         positionFloatingMenu(menuID);
@@ -1014,7 +1172,11 @@ $(function() {
                 $meta.append('<span class="sync-pair-label">' + escapeHTML(pair.targetLabel) + ' -> ' + escapeHTML(pair.referenceLabel) + '</span>');
                 $meta.append('<span class="sync-pair-delta">Δ ' + formatDelta(pair.deltaMs) + '</span>');
                 $row.append($meta);
-                $row.append('<button type="button" class="sync-pair-remove" data-pair-id="' + pair.id + '">x</button>');
+                $row.append(
+                    '<button type="button" class="sync-pair-remove dismiss-btn" data-pair-id="' + pair.id + '" aria-label="Remove sync pair">' +
+                    '<span class="fa-solid fa-circle-xmark" aria-hidden="true"></span>' +
+                    '</button>'
+                );
                 $pairs.append($row);
             });
     }
@@ -1259,12 +1421,17 @@ $(function() {
             var $pane = $summary.closest('.pane');
             var pane = $pane.is(panes.target.$pane) ? panes.target : panes.reference;
             var total = pane.cards.length;
+            var selected = $pane.find('.photo-card.is-selected').length;
             var visible = 0;
             pane.cards.forEach(function(info) {
                 if (cardOuterWrap(info.$el).is(':visible')) {
                     visible += 1;
                 }
             });
+            if (selected > 1) {
+                $summary.text(selected + ' of ' + total + ' selected');
+                return;
+            }
             $summary.text(visible + ' of ' + total);
         });
     }
@@ -1519,30 +1686,28 @@ $(function() {
         var useAdd = !!(evt && (evt.ctrlKey || evt.metaKey));
 
         if (useRange) {
-            var selectedInfos = selectedTargetInfos();
             var clickedInfo = cardInfoByID(panes.target, clickedID);
-            var nearestPrev = null;
+            var anchorInfo = null;
             if (!clickedInfo) {
                 return;
             }
-
-            selectedInfos.forEach(function(info) {
-                if (info.index < clickedInfo.index && (!nearestPrev || info.index > nearestPrev.index)) {
-                    nearestPrev = info;
-                }
-            });
+            if (targetSelectionAnchorID) {
+                anchorInfo = cardInfoByID(panes.target, targetSelectionAnchorID);
+            }
 
             if (!useAdd) {
                 $pane.find('.photo-card').removeClass('is-selected is-selection-anchor');
             }
-            if (!nearestPrev) {
+            if (!anchorInfo) {
                 $card.addClass('is-selected');
                 setTargetSelectionAnchor($card);
                 return;
             }
 
+            var start = Math.min(anchorInfo.index, clickedInfo.index);
+            var end = Math.max(anchorInfo.index, clickedInfo.index);
             panes.target.cards.forEach(function(info) {
-                if (info.index >= nearestPrev.index && info.index <= clickedInfo.index) {
+                if (info.index >= start && info.index <= end) {
                     info.$el.addClass('is-selected');
                 }
             });
@@ -1586,6 +1751,7 @@ $(function() {
         allCards().forEach(function($card) {
             cardSelectionWrap($card).toggleClass('is-highlighted', $card.hasClass('is-selected'));
         });
+        updatePaneSummaries();
     }
 
     function ensureAdjustedBadge($card) {
@@ -1842,13 +2008,15 @@ $(function() {
         var entries = [];
         targetCards.forEach(function(info) {
             var $card = info.$el;
-            var timezone = String($card.attr('data-gps-timezone') || '').trim();
-            if (!timezone) {
+            var lat = parseFloat($card.attr('data-gps-lat'));
+            var lon = parseFloat($card.attr('data-gps-lon'));
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
                 return;
             }
             var entry = {
                 id: String($card.data('photoId') || info.id),
-                timezone: timezone
+                latitude: lat,
+                longitude: lon
             };
             if (mode === 'set') {
                 var localTime = String($card.attr('data-exif-time') || '');
@@ -1867,8 +2035,8 @@ $(function() {
         });
         if (entries.length === 0) {
             $('#sync-status').text(mode === 'set'
-                ? 'No target images have GPS coordinate timezone data and EXIF timestamps.'
-                : 'Adjust from GPS coordinate requires target images with GPS timezone data plus accurate EXIF time and offset.');
+                ? 'No target images have valid staged GPS coordinates and EXIF timestamps.'
+                : 'Adjust from GPS coordinate requires valid staged GPS coordinates plus accurate EXIF time and offset.');
             return;
         }
         fetch('/timezone-offsets', {
@@ -1958,6 +2126,7 @@ $(function() {
     }
 
     function applyChangesToFiles() {
+        var pageID = window.metasyncProgress && window.metasyncProgress.pageID ? String(window.metasyncProgress.pageID) : '';
         var changes = [];
         panes.target.cards.forEach(function(info) {
             var $card = info.$el;
@@ -2013,7 +2182,7 @@ $(function() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ changes: changes })
+            body: JSON.stringify({ page_id: pageID, changes: changes })
         }).then(function(resp) {
             if (!resp.ok) {
                 return resp.text().then(function(text) {
@@ -2022,58 +2191,13 @@ $(function() {
             }
             return resp.json();
         }).then(function(resp) {
-            var applied = Array.isArray(resp.applied) ? resp.applied : [];
-            var errors = Array.isArray(resp.errors) ? resp.errors : [];
-
-            var appliedSet = {};
-            for (var i = 0; i < applied.length; i += 1) {
-                appliedSet[applied[i]] = true;
+            applyTaskState = {
+                taskID: String(resp && resp.task_id || ''),
+                changes: changes
+            };
+            if (!applyTaskState.taskID) {
+                throw new Error('missing task id');
             }
-
-            panes.target.cards.forEach(function(info) {
-                var $card = info.$el;
-                var path = String($card.data('path') || '');
-                if (!appliedSet[path]) {
-                    return;
-                }
-
-                var curExif = $card.attr('data-exif-time') || '';
-                var curOffset = $card.attr('data-exif-offset') || '';
-                var curGPSTime = $card.attr('data-gps-time') || '';
-                var curGPS = $card.attr('data-exif-gps') || '';
-                var curLat = $card.attr('data-gps-lat') || '';
-                var curLon = $card.attr('data-gps-lon') || '';
-                $card.attr('data-base-exif-time', curExif);
-                $card.attr('data-base-exif-offset', curOffset);
-                $card.attr('data-base-gps-time', curGPSTime);
-                $card.attr('data-base-exif-gps', curGPS);
-                $card.attr('data-base-gps-lat', curLat);
-                $card.attr('data-base-gps-lon', curLon);
-                if (($card.attr('data-base-exif-time') || '') === curExif) {
-                    $card.removeAttr('data-adjusted-exif-time');
-                    $card.removeClass('has-adjusted');
-                    $card.find('.thumb-adjusted').text('');
-                }
-                if (normalizeCoordText(curLat) === normalizeCoordText($card.attr('data-base-gps-lat') || '') &&
-                    normalizeCoordText(curLon) === normalizeCoordText($card.attr('data-base-gps-lon') || '')) {
-                    $card.removeClass('has-gps-adjusted');
-                }
-            });
-
-            applyLensHighlightState();
-            populateTimezoneSelector(panes.target);
-            var $selectedTarget = activeTargetCard();
-            if ($selectedTarget.length > 0) {
-                updatePaneMetadataFromCard(panes.target.$pane, $selectedTarget);
-                syncPaneMap(panes.target.$pane);
-            }
-
-            if (errors.length > 0) {
-                $('#sync-status').text('Applied ' + applied.length + ' changes; ' + errors.length + ' failed.');
-            } else {
-                $('#sync-status').text('Applied ' + applied.length + ' EXIF updates to files.');
-            }
-            renderApplyResults(applied, errors);
         }).catch(function(err) {
             var msg = 'Failed to apply changes.';
             if (err && err.message) {
@@ -2082,6 +2206,126 @@ $(function() {
             $('#sync-status').text(msg);
             renderApplyResults([], [{ path: 'request', error: msg }]);
         });
+    }
+
+    function handleApplyTaskProgress(snap) {
+        if (snap.fatal) {
+            var fatalMsg = String(snap.fatal || 'Failed to apply changes.');
+            $('#sync-status').text(fatalMsg);
+            renderApplyResults([], [{ path: 'request', error: fatalMsg }]);
+            applyTaskState = null;
+            return;
+        }
+
+        $('#sync-status').text(formatApplyProgressText(snap));
+        if (!snap.done) {
+            return;
+        }
+
+        finalizeApplyTask(snap);
+        applyTaskState = null;
+    }
+
+    function formatApplyProgressText(snap) {
+        var parts = ['Saving files'];
+        if (Number(snap.total || 0) > 0) {
+            parts.push(String(snap.progress || 0) + ' of ' + String(snap.total || 0));
+            parts.push(String(Number(snap.progress_pct || 0).toFixed(1)) + '%');
+        } else {
+            parts.push(String(snap.progress || 0));
+        }
+        if (Number(snap.rate || 0) > 0) {
+            parts.push(String(Number(snap.rate || 0).toFixed(1)) + '/s');
+        }
+        if (Number(snap.eta_seconds || 0) > 0) {
+            parts.push('ETA ' + formatETASeconds(Number(snap.eta_seconds || 0)));
+        }
+        return parts.join(' ');
+    }
+
+    function formatETASeconds(seconds) {
+        var total = Math.max(0, Math.round(seconds));
+        var mins = Math.floor(total / 60);
+        var secs = total % 60;
+        if (mins <= 0) {
+            return secs + 's';
+        }
+        return mins + 'm' + secs + 's';
+    }
+
+    function finalizeApplyTask(snap) {
+        var task = applyTaskState || { changes: [] };
+        var failedSet = {};
+        var errors = [];
+        (Array.isArray(snap.errors) ? snap.errors : []).forEach(function(item) {
+            var path = String(item.path || '');
+            if (path) {
+                failedSet[path] = true;
+            }
+            errors.push({
+                path: path || 'unknown',
+                error: String(item.error || 'unknown error')
+            });
+        });
+
+        var applied = [];
+        (task.changes || []).forEach(function(change) {
+            var path = String(change.path || '');
+            if (!path || failedSet[path]) {
+                return;
+            }
+            applied.push(path);
+        });
+
+        var appliedSet = {};
+        for (var i = 0; i < applied.length; i += 1) {
+            appliedSet[applied[i]] = true;
+        }
+
+        panes.target.cards.forEach(function(info) {
+            var $card = info.$el;
+            var path = String($card.data('path') || '');
+            if (!appliedSet[path]) {
+                return;
+            }
+
+            var curExif = $card.attr('data-exif-time') || '';
+            var curOffset = $card.attr('data-exif-offset') || '';
+            var curGPSTime = $card.attr('data-gps-time') || '';
+            var curGPS = $card.attr('data-exif-gps') || '';
+            var curLat = $card.attr('data-gps-lat') || '';
+            var curLon = $card.attr('data-gps-lon') || '';
+            $card.attr('data-base-exif-time', curExif);
+            $card.attr('data-base-exif-offset', curOffset);
+            $card.attr('data-base-gps-time', curGPSTime);
+            $card.attr('data-base-exif-gps', curGPS);
+            $card.attr('data-base-gps-lat', curLat);
+            $card.attr('data-base-gps-lon', curLon);
+            if (($card.attr('data-base-exif-time') || '') === curExif) {
+                $card.removeAttr('data-adjusted-exif-time');
+                $card.removeClass('has-adjusted');
+                $card.find('.thumb-adjusted').text('');
+            }
+            if (normalizeCoordText(curLat) === normalizeCoordText($card.attr('data-base-gps-lat') || '') &&
+                normalizeCoordText(curLon) === normalizeCoordText($card.attr('data-base-gps-lon') || '')) {
+                $card.removeClass('has-gps-adjusted');
+            }
+        });
+
+        applyLensHighlightState();
+        populateTimezoneSelector(panes.target);
+        var $selectedTarget = activeTargetCard();
+        if ($selectedTarget.length > 0) {
+            updatePaneMetadataFromCard(panes.target.$pane, $selectedTarget);
+            syncPaneMap(panes.target.$pane);
+        }
+
+        if (errors.length > 0) {
+            $('#sync-status').text('Applied ' + applied.length + ' changes; ' + errors.length + ' failed.');
+        } else {
+            $('#sync-status').text('Applied ' + applied.length + ' EXIF updates to files.');
+        }
+        renderApplyResults(applied, errors);
     }
 
     function renderApplyResults(applied, errors) {

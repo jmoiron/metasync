@@ -183,6 +183,9 @@
 .fa-image {
   --fa: "\f03e";
 }
+.fa-image {
+  --fa: "\f03e";
+}
 .fa-list-check {
   --fa: "\f0ae";
 }
@@ -236,6 +239,9 @@
 }
 .fa-square {
   --fa: "\f0c8";
+}
+.fa-star-of-life {
+  --fa: "\f621";
 }
 .fa-sun {
   --fa: "\f185";

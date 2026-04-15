@@ -11,6 +11,14 @@ const (
 	ThumbMaxHeight = img.ThumbMaxHeight
 )
 
+func IsRawPath(path string) bool {
+	return img.IsRawPath(path)
+}
+
+func EnsureRawPreview(srcPath, cacheDir, cacheKey string) (string, error) {
+	return img.EnsureRawPreview(srcPath, cacheDir, cacheKey)
+}
+
 func Configure(workers int) {
 	img.Configure(workers)
 }

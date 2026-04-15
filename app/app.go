@@ -55,6 +55,7 @@ func New(cfg Config) (*App, error) {
 
 	reg.AddBaseFS("base", "assets/templates/base.html", templates)
 	reg.AddPathFS("assets/templates/index.html", templates)
+	reg.AddPathFS("assets/templates/pane.html", templates)
 	if err := reg.Build(); err != nil {
 		st.Close()
 		return nil, err
@@ -93,6 +94,7 @@ func New(cfg Config) (*App, error) {
 	r.Use(middleware.Recoverer)
 
 	r.Get("/", h.Index)
+	r.Get("/pane", h.Pane)
 	r.Post("/apply", h.Apply)
 	r.Post("/load", h.Load)
 	r.Post("/timezone-offsets", h.TimezoneOffsets)

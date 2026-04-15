@@ -16,6 +16,7 @@ import (
 	exiftool "github.com/barasher/go-exiftool"
 
 	"github.com/jmoiron/metasync/model"
+	"github.com/jmoiron/metasync/progress"
 	"github.com/jmoiron/metasync/spool"
 )
 
@@ -95,6 +96,14 @@ func (e *Extractor) Close() error {
 }
 
 func (e *Extractor) Extract(paths []string) map[string]model.ExifData {
+	return e.extract(paths, nil)
+}
+
+func (e *Extractor) ExtractWithProgress(paths []string, reporter progress.Reporter) map[string]model.ExifData {
+	return e.extract(paths, reporter)
+}
+
+func (e *Extractor) extract(paths []string, reporter progress.Reporter) map[string]model.ExifData {
 	result := make(map[string]model.ExifData, len(paths))
 	if e == nil || e.et == nil || len(paths) == 0 {
 		return result
@@ -110,24 +119,27 @@ func (e *Extractor) Extract(paths []string) map[string]model.ExifData {
 	}
 
 	if extractWorkers <= 1 || len(jobs) <= 1 {
-		return e.extractSingle(jobs, len(paths))
+		return e.extractSingle(jobs, len(paths), reporter)
 	}
-	return e.extractParallel(jobs, len(paths))
+	return e.extractParallel(jobs, len(paths), reporter)
 }
 
-func (e *Extractor) extractSingle(jobs []extractJob, total int) map[string]model.ExifData {
+func (e *Extractor) extractSingle(jobs []extractJob, total int, reporter progress.Reporter) map[string]model.ExifData {
 	result := make(map[string]model.ExifData, total)
 	start := time.Now()
 	done := 0
 	for _, job := range jobs {
 		mergeExtractResult(result, extractChunkWithExiftool(e.et, job.paths))
 		done += len(job.paths)
+		if reporter != nil {
+			reporter.Set(done)
+		}
 		logExtractProgress(start, done, total)
 	}
 	return result
 }
 
-func (e *Extractor) extractParallel(jobs []extractJob, total int) map[string]model.ExifData {
+func (e *Extractor) extractParallel(jobs []extractJob, total int, reporter progress.Reporter) map[string]model.ExifData {
 	result := make(map[string]model.ExifData, total)
 	pool := spool.NewPool(extractWorkers)
 	jobch := make(chan extractJob, extractWorkers)
@@ -162,6 +174,9 @@ func (e *Extractor) extractParallel(jobs []extractJob, total int) map[string]mod
 		res := <-progress
 		mergeExtractResult(result, res.data)
 		done += len(res.data)
+		if reporter != nil {
+			reporter.Set(done)
+		}
 		logExtractProgress(start, done, total)
 	}
 
@@ -302,16 +317,24 @@ func Full(ctx context.Context, path string) (map[string]any, error) {
 }
 
 func (e *Extractor) WriteAll(changes []FileWrite) []WriteResult {
+	return e.writeAll(changes, nil)
+}
+
+func (e *Extractor) WriteAllWithProgress(changes []FileWrite, reporter progress.Reporter) []WriteResult {
+	return e.writeAll(changes, reporter)
+}
+
+func (e *Extractor) writeAll(changes []FileWrite, reporter progress.Reporter) []WriteResult {
 	if e == nil || e.et == nil || len(changes) == 0 {
 		return nil
 	}
 	if extractWorkers <= 1 || len(changes) <= 1 {
-		return e.writeAllSingle(changes)
+		return e.writeAllSingle(changes, reporter)
 	}
-	return e.writeAllParallel(changes)
+	return e.writeAllParallel(changes, reporter)
 }
 
-func (e *Extractor) writeAllSingle(changes []FileWrite) []WriteResult {
+func (e *Extractor) writeAllSingle(changes []FileWrite, reporter progress.Reporter) []WriteResult {
 	results := make([]WriteResult, len(changes))
 	start := time.Now()
 	for i, change := range changes {
@@ -319,12 +342,13 @@ func (e *Extractor) writeAllSingle(changes []FileWrite) []WriteResult {
 			Path: change.Path,
 			Err:  e.Write(change.Path, change.Req),
 		}
+		reportWriteProgress(reporter, results[i])
 		logWriteProgress(start, i+1, len(changes))
 	}
 	return results
 }
 
-func (e *Extractor) writeAllParallel(changes []FileWrite) []WriteResult {
+func (e *Extractor) writeAllParallel(changes []FileWrite, reporter progress.Reporter) []WriteResult {
 	type writeJob struct {
 		index  int
 		change FileWrite
@@ -379,6 +403,7 @@ func (e *Extractor) writeAllParallel(changes []FileWrite) []WriteResult {
 	for done := range len(changes) {
 		item := <-progress
 		results[item.index] = item.result
+		reportWriteProgress(reporter, item.result)
 		logWriteProgress(start, done+1, len(changes))
 	}
 
@@ -386,6 +411,20 @@ func (e *Extractor) writeAllParallel(changes []FileWrite) []WriteResult {
 		slog.Warn("parallel exif apply encountered errors", "err", err)
 	}
 	return results
+}
+
+func reportWriteProgress(reporter progress.Reporter, result WriteResult) {
+	if reporter == nil {
+		return
+	}
+	if result.Err != nil {
+		reporter.Error(progress.ItemError{
+			Path:  result.Path,
+			Code:  "file.write",
+			Error: result.Err.Error(),
+		})
+	}
+	reporter.Add(1)
 }
 
 func logWriteProgress(start time.Time, completed, total int) {

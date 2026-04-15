@@ -168,7 +168,7 @@ func photosFromRoot(root string, side model.Side, recursive bool, refreshMetadat
 			reporter.SetOperation("image.scan_metadata", root, len(paths))
 		}
 		extractStart := time.Now()
-		exifData = extractor.Extract(paths)
+		exifData = extractor.ExtractWithProgress(paths, reporter)
 		slog.Info(
 			"exif extraction complete",
 			"side", side,
@@ -176,9 +176,6 @@ func photosFromRoot(root string, side model.Side, recursive bool, refreshMetadat
 			"elapsed", time.Since(extractStart).Round(time.Millisecond).String(),
 			"root", root,
 		)
-		if reporter != nil {
-			reporter.Set(len(paths))
-		}
 	}
 	var dimensionsElapsed time.Duration
 	dimensionsCount := 0

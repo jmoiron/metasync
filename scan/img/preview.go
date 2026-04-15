@@ -1,0 +1,83 @@
+package img
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+)
+
+const (
+	RawPreviewMaxWidth  = 1600
+	RawPreviewMaxHeight = 1200
+)
+
+var rawExts = map[string]struct{}{
+	".arw": {},
+	".cr2": {},
+	".cr3": {},
+	".crw": {},
+	".nef": {},
+	".nrw": {},
+	".sr2": {},
+	".srf": {},
+}
+
+func IsRawPath(path string) bool {
+	_, ok := rawExts[strings.ToLower(filepath.Ext(path))]
+	return ok
+}
+
+func RawPreviewRelPath(cacheKey string) string {
+	if cacheKey == "" {
+		return ""
+	}
+	return cacheKey + ".raw.jpg"
+}
+
+func EnsureRawPreview(srcPath, cacheDir, cacheKey string) (string, error) {
+	if cacheDir == "" {
+		return "", fmt.Errorf("missing cache dir")
+	}
+	if cacheKey == "" {
+		return "", fmt.Errorf("missing cache key")
+	}
+
+	dstPath := filepath.Join(cacheDir, RawPreviewRelPath(cacheKey))
+	if _, err := os.Stat(dstPath); err == nil {
+		return dstPath, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
+		return "", err
+	}
+
+	tmp, err := os.CreateTemp(cacheDir, cacheKey+".raw-preview-*.jpg")
+	if err != nil {
+		return "", err
+	}
+	tmpPath := tmp.Name()
+	_ = tmp.Close()
+	defer os.Remove(tmpPath)
+
+	geometry := fmt.Sprintf("%dx%d>", RawPreviewMaxWidth, RawPreviewMaxHeight)
+	cmd := exec.Command(
+		"convert",
+		srcPath,
+		"-auto-orient",
+		"-filter", "Catrom",
+		"-resize", geometry,
+		"-quality", "88",
+		tmpPath,
+	)
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmpPath, dstPath); err != nil {
+		return "", err
+	}
+	return dstPath, nil
+}
