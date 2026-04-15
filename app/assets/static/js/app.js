@@ -390,6 +390,7 @@ $(function() {
         activeHeaderMenu = '';
         $('.header-dropdown-menu').prop('hidden', true).removeClass('is-open');
         $('[data-menu-target]').removeClass('is-active').attr('aria-expanded', 'false');
+        syncWorkPanelState();
     }
 
     function toggleWorkPanel(panelName) {

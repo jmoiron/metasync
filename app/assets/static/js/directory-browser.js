@@ -14,6 +14,7 @@ $(function() {
         $selector.data('entries', []);
         $selector.data('activeEntryPath', '');
         $selector.data('editingPath', false);
+        $selector.data('taskID', '');
 
         $selector.on('click', function() {
             selectDirectorySelector($selector);
@@ -51,7 +52,7 @@ $(function() {
 
         $selector.on('click', '[data-directory-set]', function() {
             selectDirectorySelector($selector);
-            applyDirectorySelection($selector);
+            startLoad($selector);
         });
 
         $selector.on('input', '[data-directory-search-input]', function() {
@@ -82,6 +83,12 @@ $(function() {
             }
 
             if (evt.key === 'Enter') {
+                if (evt.shiftKey) {
+                    if (startLoadFromSelection($selector)) {
+                        evt.preventDefault();
+                    }
+                    return;
+                }
                 if (openActiveEntry($selector)) {
                     evt.preventDefault();
                 }
@@ -150,6 +157,12 @@ $(function() {
         }
 
         if (evt.key === 'Enter') {
+            if (evt.shiftKey) {
+                if (startLoadFromSelection($selected)) {
+                    evt.preventDefault();
+                }
+                return;
+            }
             if (openActiveEntry($selected)) {
                 evt.preventDefault();
             }
@@ -170,6 +183,20 @@ $(function() {
             evt.preventDefault();
             showSearch($selected, String($selected.data('filterText') || '') + evt.key);
         }
+    });
+
+    $(document).on('metasync:progress', function(evt) {
+        var snap = evt.originalEvent && evt.originalEvent.detail ? evt.originalEvent.detail : evt.detail;
+        if (!snap || !snap.task_id) {
+            return;
+        }
+        $workspace.find('[data-directory-selector]').each(function() {
+            var $selector = $(this);
+            if (String($selector.data('taskID') || '') !== String(snap.task_id || '')) {
+                return;
+            }
+            renderTaskProgress($selector, snap);
+        });
     });
 
     function loadDirectory($selector, path, fallbackError) {
@@ -312,23 +339,161 @@ $(function() {
     }
 
     function applyDirectorySelection($selector) {
-        var queryName = String($selector.attr('data-query-name') || '');
+        navigateSelectorToPath($selector, String($selector.data('currentPath') || ''));
+    }
+
+    function startLoad($selector) {
+        var pageID = window.metasyncProgress && window.metasyncProgress.pageID ? String(window.metasyncProgress.pageID) : '';
         var currentPath = String($selector.data('currentPath') || '');
-        if (!queryName || !currentPath) {
+        if (!pageID || !currentPath) {
+            applyDirectorySelection($selector);
             return;
         }
 
+        setDirectoryLoadingState($selector, true);
+        $selector.find('[data-directory-error]').text('').prop('hidden', true);
+
+        fetch('/load', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                page_id: pageID,
+                side: loadSideForSelector($selector),
+                paths: [currentPath],
+                recursive: currentBrowseOptions($selector).recursive
+            })
+        }).then(function(resp) {
+            if (!resp.ok) {
+                return resp.text().then(function(text) {
+                    throw new Error(text || ('HTTP ' + resp.status));
+                });
+            }
+            return resp.json();
+        }).then(function(data) {
+            $selector.data('taskID', String(data.task_id || ''));
+        }).catch(function(err) {
+            setDirectoryLoadingState($selector, false);
+            $selector.find('[data-directory-error]').text(err && err.message ? err.message : 'Failed to start load.').prop('hidden', false);
+        });
+    }
+
+    function startLoadFromSelection($selector) {
+        var path = selectedLoadPath($selector);
+        if (!path) {
+            return false;
+        }
+        var previousPath = String($selector.data('currentPath') || '');
+        if (path !== previousPath) {
+            $selector.data('currentPath', path);
+        }
+        startLoad($selector);
+        if (path !== previousPath) {
+            $selector.data('currentPath', previousPath);
+        }
+        return true;
+    }
+
+    function renderTaskProgress($selector, snap) {
+        var $status = $selector.find('[data-directory-status]');
+        if (snap.fatal) {
+            setDirectoryLoadingState($selector, false);
+            $selector.data('taskID', '');
+            $selector.find('[data-directory-error]').text(String(snap.fatal)).prop('hidden', false);
+            return;
+        }
+
+        $status.text(formatProgressText(snap));
+        if (snap.done) {
+            $selector.data('taskID', '');
+            navigateLoadedSelector($selector);
+        }
+    }
+
+    function formatProgressText(snap) {
+        var label = operationLabel(String(snap.operation || ''));
+        var parts = [label];
+        if (Number(snap.total || 0) > 0) {
+            parts.push(String(snap.progress || 0) + ' of ' + String(snap.total || 0));
+            parts.push(String(Number(snap.progress_pct || 0).toFixed(1)) + '%');
+        } else {
+            parts.push(String(snap.progress || 0));
+        }
+        if (Number(snap.rate || 0) > 0) {
+            parts.push(String(Number(snap.rate || 0).toFixed(1)) + '/s');
+        }
+        if (Number(snap.eta_seconds || 0) > 0) {
+            parts.push('ETA ' + formatETA(Number(snap.eta_seconds || 0)));
+        }
+        return parts.join(' ');
+    }
+
+    function operationLabel(operation) {
+        switch (operation) {
+        case 'file.scan':
+            return 'scanning files';
+        case 'image.scan_metadata':
+            return 'reading metadata';
+        case 'image.thumbnail':
+            return 'building thumbnails';
+        case 'file.write':
+            return 'saving files';
+        default:
+            return operation || 'working';
+        }
+    }
+
+    function formatETA(seconds) {
+        var total = Math.max(0, Math.round(seconds));
+        var mins = Math.floor(total / 60);
+        var secs = total % 60;
+        if (mins <= 0) {
+            return secs + 's';
+        }
+        return mins + 'm' + secs + 's';
+    }
+
+    function navigateLoadedSelector($selector) {
+        navigateSelectorToPath($selector, String($selector.data('currentPath') || ''));
+    }
+
+    function navigateSelectorToPath($selector, currentPath) {
+        var queryName = String($selector.attr('data-query-name') || '');
         var url = new URL(window.location.href);
+        if (!queryName || !currentPath) {
+            return;
+        }
         url.searchParams.delete(queryName);
         url.searchParams.append(queryName, currentPath);
+        url.searchParams.delete(browserFlagForSelector($selector));
+        setRecursiveQuery(url, currentBrowseOptions($selector).recursive);
         window.location.href = url.toString();
+    }
+
+    function loadSideForSelector($selector) {
+        var queryName = String($selector.attr('data-query-name') || '');
+        return queryName === 'ref' ? 'reference' : 'target';
+    }
+
+    function browserFlagForSelector($selector) {
+        return loadSideForSelector($selector) === 'reference' ? 'ref_browser' : 'target_browser';
     }
 
     function currentBrowseOptions($selector) {
         return {
             showFiles: selectorCheckbox($selector, '[data-browser-show-files]'),
-            showHidden: selectorCheckbox($selector, '[data-browser-show-hidden]')
+            showHidden: selectorCheckbox($selector, '[data-browser-show-hidden]'),
+            recursive: selectorCheckbox($selector, '[data-browser-recursive]')
         };
+    }
+
+    function setRecursiveQuery(url, recursive) {
+        if (recursive) {
+            url.searchParams.set('recursive', '1');
+            return;
+        }
+        url.searchParams.delete('recursive');
     }
 
     function selectorCheckbox($selector, selector) {
@@ -517,6 +682,18 @@ $(function() {
         }
         openDirectory($selector, activePath);
         return true;
+    }
+
+    function selectedLoadPath($selector) {
+        var activePath = String($selector.data('activeEntryPath') || '');
+        if (activePath) {
+            return activePath;
+        }
+        var dirs = navigableEntries($selector);
+        if (dirs.length > 0) {
+            return entryPath(dirs[0]);
+        }
+        return String($selector.data('currentPath') || '');
     }
 
     function openParentDirectory($selector) {

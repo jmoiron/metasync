@@ -15,6 +15,7 @@ import (
 	"github.com/Lionparcel/timezonemapper"
 	"github.com/jmoiron/metasync/exif"
 	"github.com/jmoiron/metasync/model"
+	"github.com/jmoiron/metasync/progress"
 	"github.com/jmoiron/metasync/store"
 
 	_ "image/jpeg"
@@ -44,13 +45,13 @@ func Supported(path string) bool {
 	return slices.Contains(supportedExts, ext)
 }
 
-func Photos(roots []string, side model.Side, recursive bool, refreshMetadata bool, extractor *exif.Extractor, st *store.Store) ([]model.Photo, error) {
+func Photos(roots []string, side model.Side, recursive bool, refreshMetadata bool, extractor *exif.Extractor, st *store.Store, reporter progress.Reporter) ([]model.Photo, error) {
 	if len(roots) == 0 {
 		return nil, nil
 	}
 	photos := make([]model.Photo, 0, 128)
 	for _, root := range roots {
-		rootPhotos, err := photosFromRoot(root, side, recursive, refreshMetadata, extractor, st)
+		rootPhotos, err := photosFromRoot(root, side, recursive, refreshMetadata, extractor, st, reporter)
 		if err != nil {
 			return nil, err
 		}
@@ -66,9 +67,12 @@ func Photos(roots []string, side model.Side, recursive bool, refreshMetadata boo
 	return photos, nil
 }
 
-func photosFromRoot(root string, side model.Side, recursive bool, refreshMetadata bool, extractor *exif.Extractor, st *store.Store) ([]model.Photo, error) {
+func photosFromRoot(root string, side model.Side, recursive bool, refreshMetadata bool, extractor *exif.Extractor, st *store.Store, reporter progress.Reporter) ([]model.Photo, error) {
 	root = filepath.Clean(root)
 	slog.Info("starting photo scan", "side", side, "root", root, "recursive", recursive, "refresh_metadata", refreshMetadata)
+	if reporter != nil {
+		reporter.SetOperation("file.scan", root, 0)
+	}
 
 	info, err := os.Stat(root)
 	if err != nil {
@@ -116,6 +120,9 @@ func photosFromRoot(root string, side model.Side, recursive bool, refreshMetadat
 		found++
 		if found%100 == 0 {
 			slog.Info("scan progress", "side", side, "found", found, "root", root)
+			if reporter != nil {
+				reporter.Set(found)
+			}
 		}
 		return nil
 	})
@@ -123,6 +130,9 @@ func photosFromRoot(root string, side model.Side, recursive bool, refreshMetadat
 		return nil, err
 	}
 	slog.Info("photo discovery complete", "side", side, "count", len(photos), "root", root)
+	if reporter != nil {
+		reporter.Set(len(photos))
+	}
 
 	sort.Slice(photos, func(i, j int) bool {
 		return photos[i].BaseName < photos[j].BaseName
@@ -154,6 +164,9 @@ func photosFromRoot(root string, side model.Side, recursive bool, refreshMetadat
 
 	exifData := map[string]model.ExifData{}
 	if extractor != nil && len(paths) > 0 {
+		if reporter != nil {
+			reporter.SetOperation("image.scan_metadata", root, len(paths))
+		}
 		extractStart := time.Now()
 		exifData = extractor.Extract(paths)
 		slog.Info(
@@ -163,6 +176,9 @@ func photosFromRoot(root string, side model.Side, recursive bool, refreshMetadat
 			"elapsed", time.Since(extractStart).Round(time.Millisecond).String(),
 			"root", root,
 		)
+		if reporter != nil {
+			reporter.Set(len(paths))
+		}
 	}
 	var dimensionsElapsed time.Duration
 	dimensionsCount := 0
@@ -209,7 +225,10 @@ func photosFromRoot(root string, side model.Side, recursive bool, refreshMetadat
 	}
 	if st != nil {
 		thumbStart := time.Now()
-		if err := EnsureThumbnails(photos, st.CacheDir); err != nil {
+		if reporter != nil {
+			reporter.SetOperation("image.thumbnail", root, len(photos))
+		}
+		if err := EnsureThumbnails(photos, st.CacheDir, reporter); err != nil {
 			slog.Warn("thumbnail generation failed", "side", side, "root", root, "err", err)
 		}
 		slog.Info(

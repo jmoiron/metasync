@@ -640,6 +640,41 @@ a:hover {
 .pane-header h2 {
     margin: 0;
     font-size: 1.05rem;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.pane-directory-path {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.pane-directory-link,
+.pane-directory-name {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--muted);
+}
+
+.pane-directory-link {
+    text-decoration: none;
+}
+
+.pane-directory-link:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
+.pane-directory-name {
+    color: var(--muted);
+}
+
+.pane-directory-separator {
+    color: var(--muted);
 }
 
 .pane-summary {

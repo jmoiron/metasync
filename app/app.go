@@ -13,6 +13,7 @@ import (
 
 	"github.com/jmoiron/metasync/exif"
 	"github.com/jmoiron/metasync/model"
+	"github.com/jmoiron/metasync/progress"
 	"github.com/jmoiron/metasync/scan"
 	"github.com/jmoiron/metasync/store"
 	"github.com/jmoiron/metasync/web"
@@ -80,8 +81,10 @@ func New(cfg Config) (*App, error) {
 	scan.Configure(cfg.Workers)
 
 	initial := preload(st, pageCfg)
+	hub := progress.NewHub()
+	go hub.Run()
 
-	h := web.NewHandlers(reg, st, pageCfg, initial)
+	h := web.NewHandlers(reg, st, pageCfg, initial, hub)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -91,8 +94,10 @@ func New(cfg Config) (*App, error) {
 
 	r.Get("/", h.Index)
 	r.Post("/apply", h.Apply)
+	r.Post("/load", h.Load)
 	r.Get("/browse", h.BrowseDirectories)
 	r.Get("/exif", h.InspectExif)
+	r.Get("/ws", h.ProgressWS)
 	r.Get("/healthz", h.Healthz)
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 	r.Handle("/cache/*", http.StripPrefix("/cache/", http.FileServer(http.Dir(st.CacheDir))))
@@ -149,5 +154,5 @@ func preloadSide(roots []string, side model.Side, recursive bool, refreshMetadat
 	if len(roots) == 0 {
 		return nil, nil
 	}
-	return scan.Photos(roots, side, recursive, refreshMetadata, extractor, st)
+	return scan.Photos(roots, side, recursive, refreshMetadata, extractor, st, nil)
 }
