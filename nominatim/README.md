@@ -34,6 +34,7 @@ import (
 
 func main() {
 	client := nominatim.NewClient(nominatim.PublicURL, "my-app/1.0")
+	client.SetDefaultAcceptLanguage("en-US,en")
 
 	// Get by a query string.
 	resp, _ := client.Query("Hamburg")

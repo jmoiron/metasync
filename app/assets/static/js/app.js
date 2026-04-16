@@ -1784,7 +1784,15 @@ $(function() {
         }
         if (queryLabel) {
             $results.append(
-                $('<div class="geo-lookup-empty"></div>').text('Results for "' + queryLabel + '"')
+                $('<div class="geo-lookup-results-head"></div>')
+                    .append($('<span></span>').text(queryLabel))
+                    .append(
+                        $('<button type="button" class="geo-lookup-history-btn" title="Show recent searches" aria-label="Show recent searches"></button>')
+                            .append('<span class="fa-solid fa-clock-rotate-left" aria-hidden="true"></span>')
+                            .on('click', function() {
+                                renderStoredGeoLookupResults();
+                            })
+                    )
             );
         }
 
@@ -1819,7 +1827,7 @@ $(function() {
         } else {
             modalMapState.map.setView(bounds[0], selectedPhotoZoom);
         }
-        $('#geo-lookup-status').text('Found ' + candidates.length + ' place candidate' + (candidates.length === 1 ? '' : 's') + '.');
+        $('#geo-lookup-status').text('');
     }
 
     function renderStoredGeoLookupResults() {
@@ -1828,6 +1836,7 @@ $(function() {
         $results.empty();
         if (entries.length === 0) {
             $results.append('<div class="geo-lookup-empty">Search for a place to see candidates here.</div>');
+            $('#geo-lookup-status').text('');
             return;
         }
         entries.forEach(function(entry, idx) {
@@ -1843,7 +1852,7 @@ $(function() {
                     .append($('<span class="geo-lookup-result-meta"></span>').text(count + ' cached candidate' + (count === 1 ? '' : 's')))
             );
         });
-        $('#geo-lookup-status').text('Showing recent place searches. Search again to refresh any entry.');
+        $('#geo-lookup-status').text('');
     }
 
     function loadStoredGeoLookupResults() {

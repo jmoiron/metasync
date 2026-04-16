@@ -9,14 +9,16 @@ import (
 )
 
 const (
-	defaultUserAgent = "nominatim-go-client"
-	PublicURL        = "https://nominatim.openstreetmap.org/"
+	defaultUserAgent      = "nominatim-go-client"
+	defaultAcceptLanguage = "en-US,en"
+	PublicURL             = "https://nominatim.openstreetmap.org/"
 )
 
 type Client struct {
-	baseURL    string
-	userAgent  string
-	httpClient *http.Client
+	baseURL               string
+	userAgent             string
+	defaultAcceptLanguage string
+	httpClient            *http.Client
 }
 
 func NewClient(rawURL, userAgent string) *Client {
@@ -26,10 +28,18 @@ func NewClient(rawURL, userAgent string) *Client {
 		trimmedUA = defaultUserAgent
 	}
 	return &Client{
-		baseURL:    trimmedURL,
-		userAgent:  trimmedUA,
-		httpClient: http.DefaultClient,
+		baseURL:               trimmedURL,
+		userAgent:             trimmedUA,
+		defaultAcceptLanguage: defaultAcceptLanguage,
+		httpClient:            http.DefaultClient,
 	}
+}
+
+func (c *Client) SetDefaultAcceptLanguage(value string) {
+	if c == nil {
+		return
+	}
+	c.defaultAcceptLanguage = strings.TrimSpace(value)
 }
 
 func (c *Client) Query(queryString string) ([]SearchResult, error) {
@@ -40,7 +50,11 @@ func (c *Client) Search(query *SearchQuery) ([]SearchResult, error) {
 	if query == nil {
 		return nil, fmt.Errorf("query is nil")
 	}
-	values, err := query.buildQuery()
+	effectiveQuery := *query
+	if strings.TrimSpace(effectiveQuery.AcceptLanguage) == "" {
+		effectiveQuery.AcceptLanguage = c.defaultAcceptLanguage
+	}
+	values, err := effectiveQuery.buildQuery()
 	if err != nil {
 		return nil, err
 	}

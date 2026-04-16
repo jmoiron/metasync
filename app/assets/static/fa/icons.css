@@ -141,6 +141,9 @@
 .fa-circle-xmark {
   --fa: "\f057";
 }
+.fa-clock-rotate-left {
+  --fa: "\f1da";
+}
 .fa-comment {
   --fa: "\f075";
 }

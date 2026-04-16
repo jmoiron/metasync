@@ -2,6 +2,8 @@ package nominatim
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -113,6 +115,55 @@ func Test_LimitedSearchQuery(t *testing.T) {
 	}
 	if err != nil {
 		t.Error(fmt.Sprintf("triggered error that was not supposed to: %s", err.Error()))
+	}
+}
+
+func Test_ClientDefaultAcceptLanguage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got, want := r.URL.Query().Get("accept-language"), "en-US,en"; got != want {
+			t.Fatalf("accept-language=%q, want %q", got, want)
+		}
+		_, _ = w.Write([]byte(`[{"place_id":1,"lat":"52.5","lon":"13.4","display_name":"Berlin"}]`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-agent")
+	_, err := client.Search(&SearchQuery{Q: "Berlin"})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+}
+
+func Test_QueryAcceptLanguageOverridesClientDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got, want := r.URL.Query().Get("accept-language"), "ja"; got != want {
+			t.Fatalf("accept-language=%q, want %q", got, want)
+		}
+		_, _ = w.Write([]byte(`[{"place_id":1,"lat":"35.0","lon":"135.0","display_name":"京都"}]`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-agent")
+	_, err := client.Search(&SearchQuery{Q: "Kyoto", AcceptLanguage: "ja"})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+}
+
+func Test_SetDefaultAcceptLanguage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got, want := r.URL.Query().Get("accept-language"), "th,en"; got != want {
+			t.Fatalf("accept-language=%q, want %q", got, want)
+		}
+		_, _ = w.Write([]byte(`[{"place_id":1,"lat":"13.7","lon":"100.5","display_name":"Bangkok"}]`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-agent")
+	client.SetDefaultAcceptLanguage("th,en")
+	_, err := client.Search(&SearchQuery{Q: "Bangkok"})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
 	}
 }
 
