@@ -1311,9 +1311,42 @@ body.lens-missing-gps-time-highlight-active .lens-wrap[data-lens-wrap="missing-g
 .metadata-panel {
     border-top: 1px solid var(--border);
     background: color-mix(in srgb, var(--bg) 70%, var(--surface) 30%);
-    padding: 0.75rem 1rem 0.9rem;
+    display: grid;
+    gap: 0;
+}
+
+.metadata-panel-handle {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0.18rem 1rem 0.22rem;
+    width: 100%;
+    display: grid;
+    place-items: center;
+}
+
+.metadata-panel-grip {
+    width: 3rem;
+    height: 2px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--muted) 40%, transparent 60%);
+    transition: background-color 0.18s ease;
+}
+
+.metadata-panel-handle:hover .metadata-panel-grip {
+    background: color-mix(in srgb, var(--text) 40%, transparent 60%);
+}
+
+.metadata-panel-body {
+    padding: 0.35rem 1rem 0.9rem;
     display: grid;
     gap: 0.6rem;
+}
+
+.metadata-panel.is-collapsed .metadata-panel-body {
+    display: none;
 }
 
 .metadata-layout {

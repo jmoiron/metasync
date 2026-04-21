@@ -317,45 +317,50 @@
             </div>
             </div>
             <div class="metadata-panel">
-                <div class="metadata-toggle">
-                    <button type="button" class="metadata-toggle-btn is-active" data-mode="exif">Exif</button>
-                    <button type="button" class="metadata-toggle-btn" data-mode="map">Map</button>
-                    <button type="button" class="metadata-toggle-btn metadata-inspect-btn" data-action="inspect-exif" title="display full exif data by loading it from the file" aria-label="display full exif data by loading it from the file">
-                        <span class="fa-solid fa-file-circle-question" aria-hidden="true"></span>
-                    </button>
-                </div>
-                <div class="metadata-layout">
-                    <div class="metadata-column">
-                        <table class="metadata-table">
-                            <tbody>
-                                <tr><th>Filename</th><td data-field="basename">none selected</td></tr>
-                                <tr><th>Modified</th><td data-field="modtime">n/a</td></tr>
-                                <tr><th>Size</th><td data-field="size">n/a</td></tr>
-                                <tr><th>Resolution</th><td data-field="resolution">n/a</td></tr>
-                                <tr><th>EXIF time</th><td data-field="exif-time">n/a</td></tr>
-                                <tr><th>EXIF GPS</th><td data-field="exif-gps">n/a</td></tr>
-                            </tbody>
-                        </table>
+                <button type="button" class="metadata-panel-handle" data-action="toggle-metadata-panel" aria-expanded="true" aria-label="Collapse metadata panel">
+                    <span class="metadata-panel-grip" aria-hidden="true"></span>
+                </button>
+                <div class="metadata-panel-body">
+                    <div class="metadata-toggle">
+                        <button type="button" class="metadata-toggle-btn is-active" data-mode="exif">Exif</button>
+                        <button type="button" class="metadata-toggle-btn" data-mode="map">Map</button>
+                        <button type="button" class="metadata-toggle-btn metadata-inspect-btn" data-action="inspect-exif" title="display full exif data by loading it from the file" aria-label="display full exif data by loading it from the file">
+                            <span class="fa-solid fa-file-circle-question" aria-hidden="true"></span>
+                        </button>
                     </div>
-                    <div class="metadata-column metadata-secondary">
-                        <div class="metadata-secondary-panel is-active" data-panel="exif">
+                    <div class="metadata-layout">
+                        <div class="metadata-column">
                             <table class="metadata-table">
                                 <tbody>
-                                    <tr><th>Camera</th><td data-field="camera-model">n/a</td></tr>
-                                    <tr><th>ISO</th><td data-field="iso">n/a</td></tr>
-                                    <tr><th>Aperture</th><td data-field="aperture">n/a</td></tr>
-                                    <tr><th>Exposure</th><td data-field="exposure">n/a</td></tr>
-                                    <tr><th>Focal len</th><td data-field="focal-length">n/a</td></tr>
-                                    <tr><th>Metering</th><td data-field="metering-mode">n/a</td></tr>
+                                    <tr><th>Filename</th><td data-field="basename">none selected</td></tr>
+                                    <tr><th>Modified</th><td data-field="modtime">n/a</td></tr>
+                                    <tr><th>Size</th><td data-field="size">n/a</td></tr>
+                                    <tr><th>Resolution</th><td data-field="resolution">n/a</td></tr>
+                                    <tr><th>EXIF time</th><td data-field="exif-time">n/a</td></tr>
+                                    <tr><th>EXIF GPS</th><td data-field="exif-gps">n/a</td></tr>
                                 </tbody>
                             </table>
                         </div>
-                        <div class="metadata-secondary-panel" data-panel="map">
-                            <div class="map-panel">
-                                <a href="#" class="map-expand-link" data-action="expand-map" title="open a larger map search" aria-label="open a larger map search">
-                                    <span class="fa-solid fa-expand" aria-hidden="true"></span>
-                                </a>
-                                <div class="map-canvas" data-map-canvas></div>
+                        <div class="metadata-column metadata-secondary">
+                            <div class="metadata-secondary-panel is-active" data-panel="exif">
+                                <table class="metadata-table">
+                                    <tbody>
+                                        <tr><th>Camera</th><td data-field="camera-model">n/a</td></tr>
+                                        <tr><th>ISO</th><td data-field="iso">n/a</td></tr>
+                                        <tr><th>Aperture</th><td data-field="aperture">n/a</td></tr>
+                                        <tr><th>Exposure</th><td data-field="exposure">n/a</td></tr>
+                                        <tr><th>Focal len</th><td data-field="focal-length">n/a</td></tr>
+                                        <tr><th>Metering</th><td data-field="metering-mode">n/a</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="metadata-secondary-panel" data-panel="map">
+                                <div class="map-panel">
+                                    <a href="#" class="map-expand-link" data-action="expand-map" title="open a larger map search" aria-label="open a larger map search">
+                                        <span class="fa-solid fa-expand" aria-hidden="true"></span>
+                                    </a>
+                                    <div class="map-canvas" data-map-canvas></div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -565,45 +570,50 @@
             </div>
             </div>
             <div class="metadata-panel">
-                <div class="metadata-toggle">
-                    <button type="button" class="metadata-toggle-btn is-active" data-mode="exif">Exif</button>
-                    <button type="button" class="metadata-toggle-btn" data-mode="map">Map</button>
-                    <button type="button" class="metadata-toggle-btn metadata-inspect-btn" data-action="inspect-exif" title="display full exif data by loading it from the file" aria-label="display full exif data by loading it from the file">
-                        <span class="fa-solid fa-file-circle-question" aria-hidden="true"></span>
-                    </button>
-                </div>
-                <div class="metadata-layout">
-                    <div class="metadata-column">
-                        <table class="metadata-table">
-                            <tbody>
-                                <tr><th>Filename</th><td data-field="basename">none selected</td></tr>
-                                <tr><th>Modified</th><td data-field="modtime">n/a</td></tr>
-                                <tr><th>Size</th><td data-field="size">n/a</td></tr>
-                                <tr><th>Resolution</th><td data-field="resolution">n/a</td></tr>
-                                <tr><th>EXIF time</th><td data-field="exif-time">n/a</td></tr>
-                                <tr><th>EXIF GPS</th><td data-field="exif-gps">n/a</td></tr>
-                            </tbody>
-                        </table>
+                <button type="button" class="metadata-panel-handle" data-action="toggle-metadata-panel" aria-expanded="true" aria-label="Collapse metadata panel">
+                    <span class="metadata-panel-grip" aria-hidden="true"></span>
+                </button>
+                <div class="metadata-panel-body">
+                    <div class="metadata-toggle">
+                        <button type="button" class="metadata-toggle-btn is-active" data-mode="exif">Exif</button>
+                        <button type="button" class="metadata-toggle-btn" data-mode="map">Map</button>
+                        <button type="button" class="metadata-toggle-btn metadata-inspect-btn" data-action="inspect-exif" title="display full exif data by loading it from the file" aria-label="display full exif data by loading it from the file">
+                            <span class="fa-solid fa-file-circle-question" aria-hidden="true"></span>
+                        </button>
                     </div>
-                    <div class="metadata-column metadata-secondary">
-                        <div class="metadata-secondary-panel is-active" data-panel="exif">
+                    <div class="metadata-layout">
+                        <div class="metadata-column">
                             <table class="metadata-table">
                                 <tbody>
-                                    <tr><th>Camera</th><td data-field="camera-model">n/a</td></tr>
-                                    <tr><th>ISO</th><td data-field="iso">n/a</td></tr>
-                                    <tr><th>Aperture</th><td data-field="aperture">n/a</td></tr>
-                                    <tr><th>Exposure</th><td data-field="exposure">n/a</td></tr>
-                                    <tr><th>Focal len</th><td data-field="focal-length">n/a</td></tr>
-                                    <tr><th>Metering</th><td data-field="metering-mode">n/a</td></tr>
+                                    <tr><th>Filename</th><td data-field="basename">none selected</td></tr>
+                                    <tr><th>Modified</th><td data-field="modtime">n/a</td></tr>
+                                    <tr><th>Size</th><td data-field="size">n/a</td></tr>
+                                    <tr><th>Resolution</th><td data-field="resolution">n/a</td></tr>
+                                    <tr><th>EXIF time</th><td data-field="exif-time">n/a</td></tr>
+                                    <tr><th>EXIF GPS</th><td data-field="exif-gps">n/a</td></tr>
                                 </tbody>
                             </table>
                         </div>
-                        <div class="metadata-secondary-panel" data-panel="map">
-                            <div class="map-panel">
-                                <a href="#" class="map-expand-link" data-action="expand-map" title="open a larger map search" aria-label="open a larger map search">
-                                    <span class="fa-solid fa-expand" aria-hidden="true"></span>
-                                </a>
-                                <div class="map-canvas" data-map-canvas></div>
+                        <div class="metadata-column metadata-secondary">
+                            <div class="metadata-secondary-panel is-active" data-panel="exif">
+                                <table class="metadata-table">
+                                    <tbody>
+                                        <tr><th>Camera</th><td data-field="camera-model">n/a</td></tr>
+                                        <tr><th>ISO</th><td data-field="iso">n/a</td></tr>
+                                        <tr><th>Aperture</th><td data-field="aperture">n/a</td></tr>
+                                        <tr><th>Exposure</th><td data-field="exposure">n/a</td></tr>
+                                        <tr><th>Focal len</th><td data-field="focal-length">n/a</td></tr>
+                                        <tr><th>Metering</th><td data-field="metering-mode">n/a</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="metadata-secondary-panel" data-panel="map">
+                                <div class="map-panel">
+                                    <a href="#" class="map-expand-link" data-action="expand-map" title="open a larger map search" aria-label="open a larger map search">
+                                        <span class="fa-solid fa-expand" aria-hidden="true"></span>
+                                    </a>
+                                    <div class="map-canvas" data-map-canvas></div>
+                                </div>
                             </div>
                         </div>
                     </div>

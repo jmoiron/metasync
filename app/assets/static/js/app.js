@@ -21,6 +21,10 @@ $(function() {
     var applyTaskState = null;
     var geoLookupRequestSeq = 0;
     var targetSelectionAnchorID = '';
+    var metadataPanelState = {
+        target: localStorage.getItem('metadata-panel-target') !== 'closed',
+        reference: localStorage.getItem('metadata-panel-reference') !== 'closed'
+    };
     var lensSettings = {
         unsaved: { highlight: true, hide: false },
         'missing-gps': { highlight: true, hide: false },
@@ -56,6 +60,7 @@ $(function() {
     refreshSyncUI();
     hideApplyResults();
     applyLensHighlightState();
+    syncMetadataPanelState();
     syncPaneViews();
     window.metasyncUI = window.metasyncUI || {};
     window.metasyncUI.loadPane = loadPane;
@@ -351,6 +356,11 @@ $(function() {
     }
 
     function bindMetadataToggle() {
+        $workspace.on('click', '[data-action="toggle-metadata-panel"]', function() {
+            var $pane = $(this).closest('.pane');
+            var pane = $pane.is(panes.reference.$pane) ? panes.reference : panes.target;
+            setMetadataPanelCollapsed(pane, metadataPanelState[pane.side]);
+        });
         $workspace.on('click', '.metadata-toggle-btn', function() {
             var $button = $(this);
             if ($button.is('[data-action="inspect-exif"]')) {
@@ -615,6 +625,7 @@ $(function() {
         renderGroups();
         applyLensHighlightState();
         updateReferenceNeighborHighlightForSelection();
+        syncMetadataPanelState();
         syncPaneViews();
     }
 
@@ -1551,6 +1562,25 @@ $(function() {
         $panel.find('.metadata-toggle-btn[data-mode="' + mode + '"]').addClass('is-active');
         $panel.find('.metadata-secondary-panel').removeClass('is-active');
         $panel.find('.metadata-secondary-panel[data-panel="' + mode + '"]').addClass('is-active');
+    }
+
+    function setMetadataPanelCollapsed(pane, collapsed) {
+        if (!pane || !pane.$pane || pane.$pane.length === 0) {
+            return;
+        }
+        var side = pane.side === 'reference' ? 'reference' : 'target';
+        metadataPanelState[side] = !collapsed;
+        localStorage.setItem('metadata-panel-' + side, collapsed ? 'closed' : 'open');
+        var $panel = pane.$pane.find('.metadata-panel').first();
+        $panel.toggleClass('is-collapsed', !!collapsed);
+        $panel.find('.metadata-panel-handle')
+            .attr('aria-expanded', collapsed ? 'false' : 'true')
+            .attr('aria-label', collapsed ? 'Expand metadata panel' : 'Collapse metadata panel');
+    }
+
+    function syncMetadataPanelState() {
+        setMetadataPanelCollapsed(panes.target, !metadataPanelState.target);
+        setMetadataPanelCollapsed(panes.reference, !metadataPanelState.reference);
     }
 
     function syncPaneMap($pane) {
