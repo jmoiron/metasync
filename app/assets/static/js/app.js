@@ -20,6 +20,8 @@ $(function() {
     };
     var applyTaskState = null;
     var geoLookupRequestSeq = 0;
+    var displayTimelineMsCallCount = 0;
+    var initialDisplayTimelineMsReported = false;
     var targetSelectionAnchorID = '';
     var metadataPanelState = {
         target: localStorage.getItem('metadata-panel-target') !== 'closed',
@@ -57,6 +59,7 @@ $(function() {
     bindLensControls();
     bindProgressTracking();
     renderGroups();
+    reportInitialDisplayTimelineMsUsage();
     refreshSyncUI();
     hideApplyResults();
     applyLensHighlightState();
@@ -64,16 +67,40 @@ $(function() {
     syncPaneViews();
     window.metasyncUI = window.metasyncUI || {};
     window.metasyncUI.loadPane = loadPane;
+    window.metasyncUI.renderGroups = renderGroups;
+    window.metasyncUI.staticRenderGroups = renderGroupsStatic;
+    window.metasyncUI.getDisplayTimelineMsCallCount = function() {
+        return displayTimelineMsCallCount;
+    };
+    window.metasyncUI.getPane = function(side) {
+        return side === 'reference' ? panes.reference : panes.target;
+    };
+    window.metasyncUI.getPanes = function() {
+        return {
+            target: panes.target,
+            reference: panes.reference
+        };
+    };
+    window.metasyncUI.setPaneViewMode = function(side, mode) {
+        var resolvedSide = side === 'reference' ? 'reference' : 'target';
+        var nextMode = mode === 'preview' ? 'preview' : 'thumbs';
+        paneViewMode[resolvedSide] = nextMode;
+        localStorage.setItem('pane-view-' + resolvedSide, nextMode);
+        syncPaneViews();
+    };
 
     function buildPaneState($pane, sideName) {
+        var photoModelByID = parsePanePhotoModel($pane);
         var cards = [];
         $pane.find('.photo-card').each(function(index) {
             var $card = $(this);
+            var photoID = String($card.data('photoId') || '');
             cards.push({
-                id: String($card.data('photoId') || ''),
+                id: photoID,
                 order: index,
                 side: sideName,
                 baseExifMs: parseExifTime($card.attr('data-base-exif-time')),
+                model: photoModelByID[photoID] || null,
                 $el: $card
             });
             ensureAdjustedBadge($card);
@@ -90,8 +117,25 @@ $(function() {
             side: sideName,
             $pane: $pane,
             cards: cards,
+            photoModelByID: photoModelByID,
             $timezoneSelect: $pane.find('[data-timezone-select]').first()
         };
+    }
+
+    function parsePanePhotoModel($pane) {
+        var $script = $pane.find('[data-pane-model-json]').first();
+        if ($script.length === 0) {
+            return {};
+        }
+        try {
+            var parsed = JSON.parse(String($script.text() || '{}'));
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                return {};
+            }
+            return parsed;
+        } catch (err) {
+            return {};
+        }
     }
 
     function initializeTimezoneSelectors() {
@@ -439,10 +483,17 @@ $(function() {
         $('#grouping-mode').on('change', function() {
             renderGroups();
         });
-        $('#session-minutes').on('input change', function() {
+        $('#session-minutes').on('change blur', function() {
             if (String($('#grouping-mode').val()) === 'session') {
                 renderGroups();
             }
+        });
+        $('#session-minutes').on('keydown', function(evt) {
+            if (evt.key !== 'Enter') {
+                return;
+            }
+            evt.preventDefault();
+            $(this).trigger('blur');
         });
 
         $('#add-sync-pair').on('click', function() {
@@ -1211,12 +1262,19 @@ $(function() {
         syncPaneViews();
     }
 
+    function renderGroupsStatic() {
+        renderGroupsStaticForPane(panes.target);
+        renderGroupsStaticForPane(panes.reference);
+        syncPaneViews();
+    }
+
     function renderGroupsForPane(pane) {
         var $timeline = pane.$pane.find('.timeline');
         if (pane.cards.length === 0) {
             return;
         }
-        var prevScrollTop = $timeline.scrollTop();
+        var prevScrollTop = 0; // $timeline.scrollTop();
+        pane.view = paneTimeView(pane.$pane);
 
         var mode = String($('#grouping-mode').val() || 'session');
         var scope = String($('#scope').val() || 'global');
@@ -1229,7 +1287,31 @@ $(function() {
         }
         var sessionMin = Math.max(1, Number($('#session-minutes').val()) || 5);
         var groups = buildGroups(pane, pane.cards, mode, sessionMin);
+        renderGroupListIntoTimeline($timeline, pane, groups, mode, scope, selectedTargetID, prevScrollTop);
+    }
 
+    function renderGroupsStaticForPane(pane) {
+        var $timeline = pane.$pane.find('.timeline');
+        if (pane.cards.length === 0) {
+            return;
+        }
+        var prevScrollTop = 0; // $timeline.scrollTop();
+        pane.view = paneTimeView(pane.$pane);
+        var mode = String($('#grouping-mode').val() || 'session');
+        var scope = String($('#scope').val() || 'global');
+        var selectedTargetID = '';
+        if (scope === 'session' && pane.side === 'target') {
+            var $selectedTarget = activeTargetCard();
+            if ($selectedTarget.length > 0) {
+                selectedTargetID = String($selectedTarget.data('photoId') || '');
+            }
+        }
+        var sessionMin = Math.max(1, Number($('#session-minutes').val()) || 5);
+        var groups = buildGroupsStatic(pane, pane.cards, mode, sessionMin);
+        renderGroupListIntoTimeline($timeline, pane, groups, mode, scope, selectedTargetID, prevScrollTop);
+    }
+
+    function renderGroupListIntoTimeline($timeline, pane, groups, mode, scope, selectedTargetID, prevScrollTop) {
         $timeline.empty();
         groups.forEach(function(group) {
             var $group = $('<div class="timeline-group"></div>');
@@ -1271,7 +1353,7 @@ $(function() {
             $group.toggleClass('is-collapsed', collapsed);
             $timeline.append($group);
         });
-        $timeline.scrollTop(prevScrollTop);
+        // $timeline.scrollTop(prevScrollTop || 0);
     }
 
     function buildGroups(pane, cards, mode, sessionMin) {
@@ -1311,6 +1393,71 @@ $(function() {
         } else {
             sorted.forEach(function(info) {
                 var ms = displayTimelineMsForPane(pane, info.$el);
+                if (!Number.isFinite(ms)) {
+                    noTime.cards.push(info);
+                    return;
+                }
+                var key = keyForTime(mode, ms);
+                if (!byKey[key]) {
+                    byKey[key] = {
+                        key: key,
+                        title: modeLabel(mode),
+                        anchorMs: groupSortTime(mode, ms),
+                        sortMs: groupSortTime(mode, ms),
+                        cards: []
+                    };
+                    groups.push(byKey[key]);
+                }
+                byKey[key].cards.push(info);
+            });
+            groups.sort(function(a, b) {
+                return a.sortMs - b.sortMs;
+            });
+        }
+
+        if (noTime.cards.length > 0) {
+            groups.push(noTime);
+        }
+        return groups;
+    }
+
+    function buildGroupsStatic(pane, cards, mode, sessionMin) {
+        var groups = [];
+        var byKey = {};
+        var noTime = { key: 'none', title: 'No timestamp', cards: [] };
+        var sorted = cards
+            .slice()
+            .sort(function(a, b) {
+                var aMs = displayTimelineMsForInfoModel(pane, a);
+                var bMs = displayTimelineMsForInfoModel(pane, b);
+                return compareCardsByTimeThenOrder(aMs, bMs, a.order, b.order);
+            });
+
+        if (mode === 'session') {
+            var threshold = sessionMin * 60 * 1000;
+            var current = null;
+            sorted.forEach(function(info) {
+                var ms = displayTimelineMsForInfoModel(pane, info);
+                if (!Number.isFinite(ms)) {
+                    noTime.cards.push(info);
+                    return;
+                }
+                if (!current || ms - current.lastMs > threshold) {
+                    current = {
+                        key: 'session:' + ms,
+                        title: 'Session',
+                        anchorMs: ms,
+                        lastMs: ms,
+                        cards: []
+                    };
+                    groups.push(current);
+                }
+                current.cards.push(info);
+                current.lastMs = ms;
+            });
+        } else {
+            sorted.forEach(function(info) {
+                var ms = displayTimelineMsForInfoModel(pane, info);
                 if (!Number.isFinite(ms)) {
                     noTime.cards.push(info);
                     return;
@@ -1435,7 +1582,6 @@ $(function() {
         });
 
         syncSelectionOutlineState();
-        updatePaneSummaries();
         updateSaveButtonVisibility();
     }
 
@@ -2132,8 +2278,9 @@ $(function() {
     }
 
     function displayTimelineMsForPane(pane, $card) {
+        displayTimelineMsCallCount += 1;
         var localMs = currentCardExifMs($card);
-        var view = paneTimeView(pane.$pane);
+        var view = String(pane.view || 'local');
         if (view === 'local') {
             return localMs;
         }
@@ -2149,6 +2296,47 @@ $(function() {
             return localMs;
         }
         return instantMs + (offsetMin * 60 * 1000);
+    }
+
+    function displayTimelineMsForInfoModel(pane, info) {
+        var model = info && info.model ? info.model : null;
+        var localMs = currentExifMsForInfoModel(info);
+        var view = String(pane.view || 'local');
+        if (view === 'local') {
+            return localMs;
+        }
+        var instantMs = instantMsForModel(model);
+        if (!Number.isFinite(instantMs)) {
+            return localMs;
+        }
+        if (view === 'utc') {
+            return instantMs;
+        }
+        var offsetMin = offsetMinutes(view);
+        if (!Number.isFinite(offsetMin)) {
+            return localMs;
+        }
+        return instantMs + (offsetMin * 60 * 1000);
+    }
+
+    function currentExifMsForInfoModel(info) {
+        if (!info || !info.model) {
+            return NaN;
+        }
+        return parseExifTime(info.model.exif_time);
+    }
+
+    function reportInitialDisplayTimelineMsUsage() {
+        if (initialDisplayTimelineMsReported) {
+            return;
+        }
+        initialDisplayTimelineMsReported = true;
+        var imageCount = panes.target.cards.length + panes.reference.cards.length;
+        console.info('displayTimelineMsForPane initial load:', {
+            calls: displayTimelineMsCallCount,
+            images: imageCount,
+            calls_per_image: imageCount > 0 ? displayTimelineMsCallCount / imageCount : 0
+        });
     }
 
     function displayExifTimeForPane($pane, $card) {
@@ -2216,6 +2404,28 @@ $(function() {
         }
 
         var gpsTime = String($card.attr('data-gps-time') || '');
+        if (!gpsTime) {
+            return NaN;
+        }
+        return Date.parse(gpsTime);
+    }
+
+    function instantMsForModel(model) {
+        if (!model) {
+            return NaN;
+        }
+        var timeText = String(model.exif_time || '');
+        var offsetText = String(model.exif_offset || '');
+        var offset = normalizeOffsetString(offsetText);
+        if (timeText && timeText !== 'n/a' && offset) {
+            var parts = parseExifParts(timeText);
+            var offsetMin = offsetMinutes(offset);
+            if (parts && Number.isFinite(offsetMin)) {
+                return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second, 0) - (offsetMin * 60 * 1000);
+            }
+        }
+
+        var gpsTime = String(model.gps_time || '');
         if (!gpsTime) {
             return NaN;
         }

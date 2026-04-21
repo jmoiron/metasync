@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -124,6 +125,39 @@ type PaneRenderData struct {
 	BrowseURL        string
 	PaneSummary      string
 	PictureViewTotal int
+	ModelJSON        template.JS
+}
+
+type PanePhotoModel struct {
+	ID             string     `json:"id"`
+	Order          int        `json:"order"`
+	Side           model.Side `json:"side"`
+	BaseName       string     `json:"basename"`
+	Path           string     `json:"path"`
+	RelativePath   string     `json:"relative_path"`
+	Size           int64      `json:"size"`
+	ModTime        string     `json:"modtime"`
+	Resolution     string     `json:"resolution"`
+	ExifTime       string     `json:"exif_time"`
+	BaseExifTime   string     `json:"base_exif_time"`
+	ExifOffset     string     `json:"exif_offset"`
+	BaseExifOffset string     `json:"base_exif_offset"`
+	GPSTime        string     `json:"gps_time"`
+	BaseGPSTime    string     `json:"base_gps_time"`
+	GPSTimeZone    string     `json:"gps_timezone"`
+	ExifGPS        string     `json:"exif_gps"`
+	BaseExifGPS    string     `json:"base_exif_gps"`
+	GPSLat         string     `json:"gps_lat"`
+	GPSLon         string     `json:"gps_lon"`
+	BaseGPSLat     string     `json:"base_gps_lat"`
+	BaseGPSLon     string     `json:"base_gps_lon"`
+	Aperture       string     `json:"aperture"`
+	Exposure       string     `json:"exposure"`
+	FocalLength    string     `json:"focal_length"`
+	ISO            string     `json:"iso"`
+	MeteringMode   string     `json:"metering_mode"`
+	CameraModel    string     `json:"camera_model"`
+	ThumbnailURL   string     `json:"thumbnail_url"`
 }
 
 func NewHandlers(reg *mtr.Registry, st *store.Store, cfg PageConfig, initial InitialState, hub *progress.Hub, geocoder *nominatim.Client, geocoderLimiter *rate.Limiter) *Handlers {
@@ -144,27 +178,29 @@ func (h *Handlers) Index(w http.ResponseWriter, r *http.Request) {
 	ctx := mtr.Ctx{
 		"title": "metasync",
 		"page": map[string]any{
-			"PageID":               state.PageID,
-			"Debug":                h.cfg.Debug,
-			"TargetPaths":          state.TargetPaths,
-			"ReferencePaths":       state.ReferencePaths,
-			"Recursive":            state.Recursive,
-			"TargetPhotos":         state.TargetPhotos,
-			"ReferencePhotos":      state.ReferencePhotos,
-			"TargetBrowser":        state.TargetBrowser,
-			"ReferenceBrowser":     state.ReferenceBrowser,
-			"TargetSelector":       state.TargetSelector,
-			"ReferenceSelector":    state.ReferenceSelector,
-			"TargetSummary":        summarizePhotos(state.TargetPaths, state.TargetPhotos, state.TargetError),
-			"ReferenceSummary":     summarizePhotos(state.ReferencePaths, state.ReferencePhotos, state.ReferenceError),
-			"TargetError":          errString(state.TargetError),
-			"ReferenceError":       errString(state.ReferenceError),
-			"TargetDirPath":        state.TargetDirPath,
-			"ReferenceDirPath":     state.ReferenceDirPath,
-			"TargetDirSegments":    state.TargetDirSegments,
-			"ReferenceDirSegments": state.ReferenceDirSegments,
-			"TargetBrowseURL":      state.TargetBrowseURL,
-			"ReferenceBrowseURL":   state.ReferenceBrowseURL,
+			"PageID":                 state.PageID,
+			"Debug":                  h.cfg.Debug,
+			"TargetPaths":            state.TargetPaths,
+			"ReferencePaths":         state.ReferencePaths,
+			"Recursive":              state.Recursive,
+			"TargetPhotos":           state.TargetPhotos,
+			"ReferencePhotos":        state.ReferencePhotos,
+			"TargetBrowser":          state.TargetBrowser,
+			"ReferenceBrowser":       state.ReferenceBrowser,
+			"TargetSelector":         state.TargetSelector,
+			"ReferenceSelector":      state.ReferenceSelector,
+			"TargetSummary":          summarizePhotos(state.TargetPaths, state.TargetPhotos, state.TargetError),
+			"ReferenceSummary":       summarizePhotos(state.ReferencePaths, state.ReferencePhotos, state.ReferenceError),
+			"TargetError":            errString(state.TargetError),
+			"ReferenceError":         errString(state.ReferenceError),
+			"TargetDirPath":          state.TargetDirPath,
+			"ReferenceDirPath":       state.ReferenceDirPath,
+			"TargetDirSegments":      state.TargetDirSegments,
+			"ReferenceDirSegments":   state.ReferenceDirSegments,
+			"TargetBrowseURL":        state.TargetBrowseURL,
+			"ReferenceBrowseURL":     state.ReferenceBrowseURL,
+			"TargetPaneModelJSON":    buildPanePhotoModelJSON(state.TargetPhotos),
+			"ReferencePaneModelJSON": buildPanePhotoModelJSON(state.ReferencePhotos),
 		},
 	}
 
@@ -623,6 +659,7 @@ func (h *Handlers) paneRenderData(side string, state ViewState) PaneRenderData {
 			BrowseURL:        state.ReferenceBrowseURL,
 			PaneSummary:      summarizePhotos(state.ReferencePaths, state.ReferencePhotos, state.ReferenceError),
 			PictureViewTotal: len(state.ReferencePhotos),
+			ModelJSON:        buildPanePhotoModelJSON(state.ReferencePhotos),
 		}
 	default:
 		return PaneRenderData{
@@ -645,6 +682,7 @@ func (h *Handlers) paneRenderData(side string, state ViewState) PaneRenderData {
 			BrowseURL:        state.TargetBrowseURL,
 			PaneSummary:      summarizePhotos(state.TargetPaths, state.TargetPhotos, state.TargetError),
 			PictureViewTotal: len(state.TargetPhotos),
+			ModelJSON:        buildPanePhotoModelJSON(state.TargetPhotos),
 		}
 	}
 }
@@ -888,6 +926,49 @@ func parseGeoLookupBoundingBox(parts []string) []float64 {
 		values = append(values, value)
 	}
 	return values
+}
+
+func buildPanePhotoModelJSON(photos []model.Photo) template.JS {
+	byID := make(map[string]PanePhotoModel, len(photos))
+	for idx, photo := range photos {
+		byID[photo.ID] = PanePhotoModel{
+			ID:             photo.ID,
+			Order:          idx,
+			Side:           photo.Side,
+			BaseName:       photo.BaseName,
+			Path:           photo.Path,
+			RelativePath:   photo.RelativePath,
+			Size:           photo.Size,
+			ModTime:        photo.ModTime.Format("2006-01-02 15:04:05"),
+			Resolution:     photo.Exif.Resolution(),
+			ExifTime:       photo.Exif.TimeDisplay(),
+			BaseExifTime:   photo.Exif.TimeDisplay(),
+			ExifOffset:     photo.Exif.TimeOffsetDisplay(),
+			BaseExifOffset: photo.Exif.TimeOffsetDisplay(),
+			GPSTime:        photo.Exif.GPSTimeAttr(),
+			BaseGPSTime:    photo.Exif.GPSTimeAttr(),
+			GPSTimeZone:    photo.Exif.GPSTimeZoneDisplay(),
+			ExifGPS:        photo.Exif.GPSDisplay(),
+			BaseExifGPS:    photo.Exif.GPSDisplay(),
+			GPSLat:         photo.Exif.GPSLatitudeAttr(),
+			GPSLon:         photo.Exif.GPSLongitudeAttr(),
+			BaseGPSLat:     photo.Exif.GPSLatitudeAttr(),
+			BaseGPSLon:     photo.Exif.GPSLongitudeAttr(),
+			Aperture:       photo.Exif.ApertureDisplay(),
+			Exposure:       photo.Exif.ExposureDisplay(),
+			FocalLength:    photo.Exif.FocalLengthDisplay(),
+			ISO:            photo.Exif.ISODisplay(),
+			MeteringMode:   photo.Exif.MeteringModeDisplay(),
+			CameraModel:    photo.Exif.CameraModelDisplay(),
+			ThumbnailURL:   photo.ThumbnailURL(),
+		}
+	}
+
+	blob, err := json.Marshal(byID)
+	if err != nil {
+		return template.JS("{}")
+	}
+	return template.JS(blob)
 }
 
 func summarizePhotos(roots []string, photos []model.Photo, err error) string {

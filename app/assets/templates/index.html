@@ -227,6 +227,7 @@
 
     <main class="workspace" data-role="workspace" data-page-id="{{.page.PageID}}">
         <section class="pane" data-side="left">
+            <script type="application/json" data-pane-model-json>{{.page.TargetPaneModelJSON}}</script>
             <div class="pane-header">
                 <h2>
                     <span data-pane-title-default>Targets</span>
@@ -480,6 +481,7 @@
         </section>
 
         <section class="pane" data-side="right">
+            <script type="application/json" data-pane-model-json>{{.page.ReferencePaneModelJSON}}</script>
             <div class="pane-header">
                 <h2>
                     <span data-pane-title-default>References</span>

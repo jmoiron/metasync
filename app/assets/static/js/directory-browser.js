@@ -489,6 +489,7 @@ $(function() {
     function navigateSelectorToPath($selector, currentPath, recursiveOverride) {
         var queryName = String($selector.attr('data-query-name') || '');
         var url = new URL(window.location.href);
+        var side = loadSideForSelector($selector);
         if (!queryName || !currentPath) {
             return;
         }
@@ -496,8 +497,14 @@ $(function() {
         url.searchParams.append(queryName, currentPath);
         url.searchParams.delete(browserFlagForSelector($selector));
         setRecursiveQuery(url, typeof recursiveOverride === 'boolean' ? recursiveOverride : currentBrowseOptions($selector).recursive);
+        if (window.localStorage) {
+            window.localStorage.setItem('pane-view-' + side, 'thumbs');
+        }
+        if (window.metasyncUI && typeof window.metasyncUI.setPaneViewMode === 'function') {
+            window.metasyncUI.setPaneViewMode(side, 'thumbs');
+        }
         if (window.metasyncUI && typeof window.metasyncUI.loadPane === 'function') {
-            window.metasyncUI.loadPane(loadSideForSelector($selector), url.toString());
+            window.metasyncUI.loadPane(side, url.toString());
             return;
         }
         window.location.href = url.toString();

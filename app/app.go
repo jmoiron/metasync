@@ -98,6 +98,7 @@ func New(cfg Config) (*App, error) {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(middleware.Compress(5, "text/html", "text/css", "application/json"))
 
 	r.Get("/", h.Index)
 	r.Get("/pane", h.Pane)
