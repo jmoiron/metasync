@@ -131,7 +131,7 @@
         </div>
     </div>
     {{else}}
-    <div class="pane-browser-body">
+    <div class="pane-browser-body pane-media-panel" data-pane-media="thumbs">
         <div
             class="directory-selector"
             data-directory-selector
@@ -178,6 +178,12 @@
                 <input type="text" class="directory-search-input" data-directory-search-input spellcheck="false" autocomplete="off" placeholder="Filter directories">
             </div>
         </div>
+    </div>
+    <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
+        <div class="pane-preview-empty empty-state" data-pane-preview-empty>
+            Select a {{.pane.PreviewLabel}} to preview it here.
+        </div>
+        <img class="pane-preview-image" data-pane-preview-image hidden alt="">
     </div>
     {{end}}
 </section>
