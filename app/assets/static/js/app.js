@@ -105,6 +105,7 @@ $(function() {
                 id: photoID,
                 order: order,
                 side: sideName,
+                isVisible: true,
                 baseExifMs: parseExifTime($card.attr('data-base-exif-time')),
                 model: model || null,
                 $el: $card
@@ -1676,7 +1677,8 @@ $(function() {
             $button.toggleClass('is-active', isActive);
         });
 
-        allCards().forEach(function($card) {
+        panes.target.cards.forEach(function(info) {
+            var $card = info.$el;
             var hasUnsaved = cardHasUnsavedChanges($card);
             var missingGPS = cardMissingGPS($card);
             var missingGPSTime = cardMissingGPSTime($card);
@@ -1684,29 +1686,38 @@ $(function() {
             $card.toggleClass('lens-missing-gps', lensSettings['missing-gps'].highlight && missingGPS);
             $card.toggleClass('lens-missing-gps-time', lensSettings['missing-gps-time'].highlight && missingGPSTime);
 
-            var isTargetCard = String($card.data('side') || '') === 'target';
-            if (isTargetCard) {
-                var visible = true;
-                var activeHideLensCount = 0;
-                var matchesActiveHideLens = false;
+            var visible = true;
+            var activeHideLensCount = 0;
+            var matchesActiveHideLens = false;
 
-                if (lensSettings.unsaved.hide) {
-                    activeHideLensCount += 1;
-                    matchesActiveHideLens = matchesActiveHideLens || hasUnsaved;
-                }
-                if (lensSettings['missing-gps'].hide) {
-                    activeHideLensCount += 1;
-                    matchesActiveHideLens = matchesActiveHideLens || missingGPS;
-                }
-                if (lensSettings['missing-gps-time'].hide) {
-                    activeHideLensCount += 1;
-                    matchesActiveHideLens = matchesActiveHideLens || missingGPSTime;
-                }
-                if (activeHideLensCount > 0) {
-                    visible = matchesActiveHideLens;
-                }
-                cardOuterWrap($card).toggle(visible);
+            if (lensSettings.unsaved.hide) {
+                activeHideLensCount += 1;
+                matchesActiveHideLens = matchesActiveHideLens || hasUnsaved;
             }
+            if (lensSettings['missing-gps'].hide) {
+                activeHideLensCount += 1;
+                matchesActiveHideLens = matchesActiveHideLens || missingGPS;
+            }
+            if (lensSettings['missing-gps-time'].hide) {
+                activeHideLensCount += 1;
+                matchesActiveHideLens = matchesActiveHideLens || missingGPSTime;
+            }
+            if (activeHideLensCount > 0) {
+                visible = matchesActiveHideLens;
+            }
+            info.isVisible = visible;
+            cardOuterWrap($card).toggle(visible);
+        });
+
+        panes.reference.cards.forEach(function(info) {
+            var $card = info.$el;
+            var hasUnsaved = cardHasUnsavedChanges($card);
+            var missingGPS = cardMissingGPS($card);
+            var missingGPSTime = cardMissingGPSTime($card);
+            $card.toggleClass('lens-unsaved', lensSettings.unsaved.highlight && hasUnsaved);
+            $card.toggleClass('lens-missing-gps', lensSettings['missing-gps'].highlight && missingGPS);
+            $card.toggleClass('lens-missing-gps-time', lensSettings['missing-gps-time'].highlight && missingGPSTime);
+            info.isVisible = true;
         });
 
         syncSelectionOutlineState();
@@ -1714,15 +1725,22 @@ $(function() {
     }
 
     function updatePaneSummaries() {
-        $('.pane-summary').each(function() {
-            var $summary = $(this);
-            var $pane = $summary.closest('.pane');
-            var pane = $pane.is(panes.target.$pane) ? panes.target : panes.reference;
+        [panes.target, panes.reference].forEach(function(pane) {
+            if (!pane || !pane.$pane || pane.$pane.length === 0) {
+                return;
+            }
+            var $summary = pane.$pane.find('.pane-summary').first();
+            if ($summary.length === 0) {
+                return;
+            }
             var total = pane.cards.length;
-            var selected = $pane.find('.photo-card.is-selected').length;
+            var selected = 0;
             var visible = 0;
             pane.cards.forEach(function(info) {
-                if (cardOuterWrap(info.$el).is(':visible')) {
+                if (info.$el.hasClass('is-selected')) {
+                    selected += 1;
+                }
+                if (info.isVisible !== false) {
                     visible += 1;
                 }
             });
