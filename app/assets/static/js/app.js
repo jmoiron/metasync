@@ -36,6 +36,9 @@ $(function() {
         target: localStorage.getItem('pane-view-target') || 'thumbs',
         reference: localStorage.getItem('pane-view-reference') || 'thumbs'
     };
+    var spinnerRenderThreshold = 100;
+    var photoTemplate = document.getElementById('photo-template');
+    var photoGroupTemplate = document.getElementById('photo-group-template');
 
     var $workspace = $('[data-role="workspace"]');
     if ($workspace.length === 0) {
@@ -58,13 +61,6 @@ $(function() {
     bindSyncControls();
     bindLensControls();
     bindProgressTracking();
-    renderGroups();
-    reportInitialDisplayTimelineMsUsage();
-    refreshSyncUI();
-    hideApplyResults();
-    applyLensHighlightState();
-    syncMetadataPanelState();
-    syncPaneViews();
     window.metasyncUI = window.metasyncUI || {};
     window.metasyncUI.loadPane = loadPane;
     window.metasyncUI.renderGroups = renderGroups;
@@ -88,25 +84,32 @@ $(function() {
         localStorage.setItem('pane-view-' + resolvedSide, nextMode);
         syncPaneViews();
     };
+    renderGroupsWithOptionalSpinner([panes.target, panes.reference], function() {
+        reportInitialDisplayTimelineMsUsage();
+        refreshSyncUI();
+        hideApplyResults();
+        applyLensHighlightState();
+        syncMetadataPanelState();
+        syncPaneViews();
+    });
 
     function buildPaneState($pane, sideName) {
         var photoModelByID = parsePanePhotoModel($pane);
-        var cards = [];
-        $pane.find('.photo-card').each(function(index) {
-            var $card = $(this);
-            var photoID = String($card.data('photoId') || '');
-            cards.push({
+        var models = paneModelsFromJSON(photoModelByID);
+        var cards = models.map(function(model, index) {
+            var $card = createPhotoCardFromModel(model, sideName);
+            var photoID = String(model && model.id ? model.id : '');
+            var order = Number.isFinite(Number(model.order)) ? Number(model.order) : index;
+            ensureAdjustedBadge($card);
+            return {
                 id: photoID,
-                order: index,
+                order: order,
                 side: sideName,
                 baseExifMs: parseExifTime($card.attr('data-base-exif-time')),
-                model: photoModelByID[photoID] || null,
+                model: model || null,
                 $el: $card
-            });
-            ensureStatusDots($card);
-            ensureAdjustedBadge($card);
+            };
         });
-
         cards.sort(function(a, b) {
             return compareCardsByTimeThenOrder(a.baseExifMs, b.baseExifMs, a.order, b.order);
         });
@@ -121,6 +124,102 @@ $(function() {
             photoModelByID: photoModelByID,
             $timezoneSelect: $pane.find('[data-timezone-select]').first()
         };
+    }
+
+    function paneModelsFromJSON(photoModelByID) {
+        return Object.keys(photoModelByID || {})
+            .map(function(id) {
+                return photoModelByID[id];
+            })
+            .filter(function(model) {
+                return !!model;
+            })
+            .sort(function(a, b) {
+                var aOrder = Number.isFinite(Number(a.order)) ? Number(a.order) : 0;
+                var bOrder = Number.isFinite(Number(b.order)) ? Number(b.order) : 0;
+                return aOrder - bOrder;
+            });
+    }
+
+    function createPhotoCardFromModel(model, sideName) {
+        var cardEl = null;
+        if (photoTemplate && photoTemplate.content && photoTemplate.content.firstElementChild) {
+            cardEl = photoTemplate.content.firstElementChild.cloneNode(true);
+        } else {
+            cardEl = document.createElement('div');
+            cardEl.className = 'thumb photo-card';
+            cardEl.innerHTML = '' +
+                '<img class="thumb-image" loading="lazy" alt="" hidden>' +
+                '<div class="thumb-status-dots" aria-hidden="true">' +
+                '<span class="thumb-status-dot dot-unsaved" title="Unsaved changes"></span>' +
+                '<span class="thumb-status-dot dot-missing-gps" title="Missing GPS"></span>' +
+                '<span class="thumb-status-dot dot-missing-gps-time" title="Missing GPS time"></span>' +
+                '</div>' +
+                '<span class="thumb-gps-adjusted">GPS adjusted</span>' +
+                '<span class="thumb-title"></span>';
+        }
+        var $card = $(cardEl);
+        applyModelAttributesToCard($card, model, sideName);
+        var thumbURL = model && model.thumbnail_url ? String(model.thumbnail_url) : '';
+        var baseName = model && model.basename ? String(model.basename) : '';
+        var $img = $card.find('.thumb-image').first();
+        if (thumbURL) {
+            $img.attr('src', thumbURL).attr('alt', baseName).prop('hidden', false);
+        } else {
+            $img.removeAttr('src').attr('alt', '').prop('hidden', true);
+        }
+        $card.find('.thumb-title').first().text(baseName);
+        return $card;
+    }
+
+    function applyModelAttributesToCard($card, model, sideName) {
+        var side = model && model.side ? String(model.side) : String(sideName || '');
+        var attrs = {
+            'data-photo-id': strField(model, 'id'),
+            'data-side': side,
+            'data-basename': strField(model, 'basename'),
+            'data-path': strField(model, 'path'),
+            'data-relative-path': strField(model, 'relative_path'),
+            'data-size': numTextField(model, 'size'),
+            'data-modtime': strField(model, 'modtime'),
+            'data-resolution': strField(model, 'resolution'),
+            'data-exif-time': strField(model, 'exif_time'),
+            'data-base-exif-time': strField(model, 'base_exif_time'),
+            'data-exif-offset': strField(model, 'exif_offset'),
+            'data-base-exif-offset': strField(model, 'base_exif_offset'),
+            'data-gps-time': strField(model, 'gps_time'),
+            'data-base-gps-time': strField(model, 'base_gps_time'),
+            'data-gps-timezone': strField(model, 'gps_timezone'),
+            'data-exif-gps': strField(model, 'exif_gps'),
+            'data-base-exif-gps': strField(model, 'base_exif_gps'),
+            'data-gps-lat': strField(model, 'gps_lat'),
+            'data-gps-lon': strField(model, 'gps_lon'),
+            'data-base-gps-lat': strField(model, 'base_gps_lat'),
+            'data-base-gps-lon': strField(model, 'base_gps_lon'),
+            'data-aperture': strField(model, 'aperture'),
+            'data-exposure': strField(model, 'exposure'),
+            'data-focal-length': strField(model, 'focal_length'),
+            'data-iso': strField(model, 'iso'),
+            'data-metering-mode': strField(model, 'metering_mode'),
+            'data-camera-model': strField(model, 'camera_model')
+        };
+        Object.keys(attrs).forEach(function(key) {
+            $card.attr(key, attrs[key]);
+        });
+    }
+
+    function strField(model, key) {
+        if (!model || model[key] === null || model[key] === undefined) {
+            return '';
+        }
+        return String(model[key]);
+    }
+
+    function numTextField(model, key) {
+        if (!model || model[key] === null || model[key] === undefined) {
+            return '0';
+        }
+        return String(model[key]);
     }
 
     function parsePanePhotoModel($pane) {
@@ -674,11 +773,12 @@ $(function() {
         }
         resetDerivedStateForPaneChange();
         initializeTimezoneSelectors();
-        renderGroups();
-        applyLensHighlightState();
-        updateReferenceNeighborHighlightForSelection();
-        syncMetadataPanelState();
-        syncPaneViews();
+        renderGroupsWithOptionalSpinner([panes.target, panes.reference], function() {
+            applyLensHighlightState();
+            updateReferenceNeighborHighlightForSelection();
+            syncMetadataPanelState();
+            syncPaneViews();
+        });
     }
 
     function teardownPane($pane) {
@@ -1263,6 +1363,33 @@ $(function() {
         syncPaneViews();
     }
 
+    function renderGroupsWithOptionalSpinner(paneList, done) {
+        var panesToSpin = (paneList || []).filter(function(pane) {
+            return !!(pane && pane.cards && pane.cards.length > spinnerRenderThreshold && pane.$pane && pane.$pane.find('.timeline').length > 0);
+        });
+        if (panesToSpin.length === 0) {
+            renderGroups();
+            if (typeof done === 'function') {
+                done();
+            }
+            return;
+        }
+        panesToSpin.forEach(function(pane) {
+            setPaneBuildSpinnerVisible(pane, true);
+        });
+        window.requestAnimationFrame(function() {
+            window.requestAnimationFrame(function() {
+                renderGroups();
+                panesToSpin.forEach(function(pane) {
+                    setPaneBuildSpinnerVisible(pane, false);
+                });
+                if (typeof done === 'function') {
+                    done();
+                }
+            });
+        });
+    }
+
     function renderGroupsStatic() {
         renderGroupsStaticForPane(panes.target);
         renderGroupsStaticForPane(panes.reference);
@@ -1314,34 +1441,30 @@ $(function() {
 
     function renderGroupListIntoTimeline($timeline, pane, groups, mode, scope, selectedTargetID, prevScrollTop) {
         $timeline.empty();
+        var groupTemplate = photoGroupTemplate && photoGroupTemplate.content ? photoGroupTemplate.content.firstElementChild : null;
         groups.forEach(function(group) {
-            var $group = $('<div class="timeline-group"></div>');
+            var $group = groupTemplate ? $(groupTemplate.cloneNode(true)) : $('<div class="timeline-group"><div class="timeline-group-header"><div class="timeline-group-meta"><button type="button" class="timeline-group-title"></button><a href="#" class="timeline-group-jump" hidden></a></div><div class="timeline-group-count"></div></div><div class="thumb-grid"></div></div>');
             var groupKey = pane.side + '|' + mode + '|' + group.key;
             var collapsed = !!collapsedGroups[groupKey];
-            var $header = $('<div class="timeline-group-header"></div>');
-            var $left = $('<div class="timeline-group-meta"></div>');
-            var $title = $('<button type="button" class="timeline-group-title"></button>');
+            var $title = $group.find('.timeline-group-title').first();
             var label = group.title;
             $title.attr('data-group-key', groupKey);
             $title.attr('data-collapsed', collapsed ? '1' : '0');
             $title.attr('aria-expanded', collapsed ? 'false' : 'true');
             $title.text(label);
-            $left.append($title);
+            var $jump = $group.find('.timeline-group-jump').first();
             if (Number.isFinite(group.anchorMs)) {
-                var $jump = $('<a href="#" class="timeline-group-jump"></a>');
                 $jump.attr('data-target-ms', String(group.anchorMs));
                 $jump.text(formatGroupDate(group.anchorMs));
-                $left.append($jump);
+                $jump.prop('hidden', false);
+            } else {
+                $jump.prop('hidden', true);
             }
-            $header.append($left);
-            $header.append($('<div class="timeline-group-count"></div>').text(group.cards.length + ' image' + (group.cards.length === 1 ? '' : 's')));
-            $group.append($header);
-
-            var $grid = $('<div class="thumb-grid"></div>');
+            $group.find('.timeline-group-count').first().text(group.cards.length + ' image' + (group.cards.length === 1 ? '' : 's'));
+            var $grid = $group.find('.thumb-grid').first();
             group.cards.forEach(function(info) {
                 $grid.append(info.$el);
             });
-            $group.append($grid);
 
             if (pane.side === 'target' && mode === 'session' && scope === 'session' && selectedTargetID !== '') {
                 var isSelectedSession = group.cards.some(function(info) {
@@ -1355,6 +1478,13 @@ $(function() {
             $timeline.append($group);
         });
         // $timeline.scrollTop(prevScrollTop || 0);
+    }
+
+    function setPaneBuildSpinnerVisible(pane, visible) {
+        if (!pane || !pane.$pane || pane.$pane.length === 0) {
+            return;
+        }
+        pane.$pane.find('[data-pane-build-spinner]').prop('hidden', !visible);
     }
 
     function buildGroups(pane, cards, mode, sessionMin) {

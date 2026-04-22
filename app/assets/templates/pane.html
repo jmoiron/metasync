@@ -26,55 +26,14 @@
     </div>
     {{if and .pane.Paths (not .pane.Browser)}}
     <div class="pane-media-view">
+        <div class="pane-build-spinner" data-pane-build-spinner hidden>
+            <div class="lds-ring" aria-hidden="true"><div></div><div></div><div></div><div></div></div>
+        </div>
         <div class="timeline pane-media-panel" data-pane-media="thumbs">
             <div class="thumb-grid">
                 {{if .pane.Error}}
                 <div class="empty-state error">{{.pane.Error}}</div>
-                {{else if .pane.Photos}}
-                {{range .pane.Photos}}
-                <div
-                    class="thumb photo-card"
-                    data-photo-id="{{.ID}}"
-                    data-side="{{.Side}}"
-                    data-basename="{{.BaseName}}"
-                    data-path="{{.Path}}"
-                    data-relative-path="{{.RelativePath}}"
-                    data-size="{{.Size}}"
-                    data-modtime="{{.ModTime.Format "2006-01-02 15:04:05"}}"
-                    data-resolution="{{.Exif.Resolution}}"
-                    data-exif-time="{{.Exif.TimeDisplay}}"
-                    data-base-exif-time="{{.Exif.TimeDisplay}}"
-                    data-exif-offset="{{.Exif.TimeOffsetDisplay}}"
-                    data-base-exif-offset="{{.Exif.TimeOffsetDisplay}}"
-                    data-gps-time="{{.Exif.GPSTimeAttr}}"
-                    data-base-gps-time="{{.Exif.GPSTimeAttr}}"
-                    data-gps-timezone="{{.Exif.GPSTimeZoneDisplay}}"
-                    data-exif-gps="{{.Exif.GPSDisplay}}"
-                    data-base-exif-gps="{{.Exif.GPSDisplay}}"
-                    data-gps-lat="{{.Exif.GPSLatitudeAttr}}"
-                    data-gps-lon="{{.Exif.GPSLongitudeAttr}}"
-                    data-base-gps-lat="{{.Exif.GPSLatitudeAttr}}"
-                    data-base-gps-lon="{{.Exif.GPSLongitudeAttr}}"
-                    data-aperture="{{.Exif.ApertureDisplay}}"
-                    data-exposure="{{.Exif.ExposureDisplay}}"
-                    data-focal-length="{{.Exif.FocalLengthDisplay}}"
-                    data-iso="{{.Exif.ISODisplay}}"
-                    data-metering-mode="{{.Exif.MeteringModeDisplay}}"
-                    data-camera-model="{{.Exif.CameraModelDisplay}}"
-                >
-                    {{if .ThumbnailURL}}
-                    <img class="thumb-image" src="{{.ThumbnailURL}}" alt="{{.BaseName}}" loading="lazy">
-                    {{end}}
-                    <div class="thumb-status-dots" aria-hidden="true">
-                        <span class="thumb-status-dot dot-unsaved" title="Unsaved changes"></span>
-                        <span class="thumb-status-dot dot-missing-gps" title="Missing GPS"></span>
-                        <span class="thumb-status-dot dot-missing-gps-time" title="Missing GPS time"></span>
-                    </div>
-                    <span class="thumb-gps-adjusted">GPS adjusted</span>
-                    <span class="thumb-title">{{.BaseName}}</span>
-                </div>
-                {{end}}
-                {{else}}
+                {{else if not .pane.Photos}}
                 <div class="empty-state">{{.pane.EmptyStateText}}</div>
                 {{end}}
             </div>

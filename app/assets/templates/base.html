@@ -22,5 +22,29 @@
 </head>
 <body>
     {{.body}}
+    <template id="photo-group-template">
+        <div class="timeline-group">
+            <div class="timeline-group-header">
+                <div class="timeline-group-meta">
+                    <button type="button" class="timeline-group-title"></button>
+                    <a href="#" class="timeline-group-jump" hidden></a>
+                </div>
+                <div class="timeline-group-count"></div>
+            </div>
+            <div class="thumb-grid"></div>
+        </div>
+    </template>
+    <template id="photo-template">
+        <div class="thumb photo-card">
+            <img class="thumb-image" loading="lazy" alt="" hidden>
+            <div class="thumb-status-dots" aria-hidden="true">
+                <span class="thumb-status-dot dot-unsaved" title="Unsaved changes"></span>
+                <span class="thumb-status-dot dot-missing-gps" title="Missing GPS"></span>
+                <span class="thumb-status-dot dot-missing-gps-time" title="Missing GPS time"></span>
+            </div>
+            <span class="thumb-gps-adjusted">GPS adjusted</span>
+            <span class="thumb-title"></span>
+        </div>
+    </template>
 </body>
 </html>
