@@ -1160,7 +1160,7 @@ a:hover {
 .thumb {
     aspect-ratio: 1;
     position: relative;
-    border-radius: 0;
+    border-radius: 8px;
     border: 1px solid color-mix(in srgb, var(--border) 70%, transparent 30%);
     display: grid;
     align-content: end;
@@ -1170,65 +1170,81 @@ a:hover {
     background: color-mix(in srgb, var(--surface) 80%, var(--hover-bg) 20%);
     text-align: left;
     cursor: pointer;
-    box-shadow: 4px 4px 0 var(--thumb-shadow);
+    background-clip: padding-box;
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--thumb-shadow) 55%, transparent 45%),
+        0 6px 14px color-mix(in srgb, var(--thumb-shadow) 40%, transparent 60%);
 }
 
 .thumb:hover {
     background: var(--hover-bg);
 }
 
-.lens-wrap {
-    display: block;
-    position: relative;
-    border-radius: 0;
-    padding: 0;
-}
-
-.lens-wrap::after {
-    content: "";
-    position: absolute;
-    inset: -2px;
-    pointer-events: none;
-    opacity: 0;
-    z-index: 3;
-}
-
-.lens-wrap.is-highlighted::after {
-    opacity: 1;
-}
-
-body.lens-unsaved-highlight-active .lens-wrap[data-lens-wrap="unsaved"].is-highlighted::after {
-    inset: -6px;
-    box-shadow: inset 0 0 0 2px var(--lens-unsaved);
-}
-
-body.lens-missing-gps-highlight-active .lens-wrap[data-lens-wrap="missing-gps"].is-highlighted::after {
-    inset: -4px;
-    box-shadow: inset 0 0 0 2px var(--lens-missing-gps);
-}
-
-body.lens-missing-gps-time-highlight-active .lens-wrap[data-lens-wrap="missing-gps-time"].is-highlighted::after {
-    inset: -8px;
-    box-shadow: inset 0 0 0 2px var(--lens-missing-gps-time);
-}
-
-.lens-wrap[data-lens-wrap="selected"].is-highlighted::after {
-    inset: -2px;
-    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 82%, var(--surface) 18%);
-}
-
-.photo-card.ref-before-highlight {
-    box-shadow: inset 0 0 0 3px color-mix(in srgb, #2f80ed 85%, transparent 15%);
-}
-
-.photo-card.ref-after-highlight {
-    box-shadow: inset 0 0 0 3px color-mix(in srgb, #27ae60 85%, transparent 15%);
-}
-
 .photo-card {
     width: 100%;
     user-select: none;
     z-index: 1;
+
+    &.ref-before-highlight {
+        box-shadow: inset 0 0 0 3px color-mix(in srgb, #2f80ed 85%, transparent 15%);
+    }
+
+    &.ref-after-highlight {
+        box-shadow: inset 0 0 0 3px color-mix(in srgb, #27ae60 85%, transparent 15%);
+    }
+
+    &.is-selected {
+        border-color: color-mix(in srgb, var(--accent) 82%, var(--surface) 18%);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 82%, var(--surface) 18%),
+            0 1px 2px color-mix(in srgb, var(--thumb-shadow) 55%, transparent 45%),
+            0 6px 14px color-mix(in srgb, var(--thumb-shadow) 40%, transparent 60%);
+    }
+
+    .thumb-status-dots {
+        position: absolute;
+        top: 0.35rem;
+        right: 0.35rem;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        gap: 0.23rem;
+    }
+
+    .thumb-status-dot {
+        width: 0.58rem;
+        height: 0.58rem;
+        border-radius: 50%;
+        border: 1px solid rgba(0, 0, 0, 0.35);
+        background: transparent;
+        opacity: 0;
+        transform: scale(0.72);
+        transition: opacity 120ms ease-out, transform 120ms ease-out;
+    }
+
+    &.lens-unsaved .thumb-status-dot.dot-unsaved {
+        background: var(--lens-unsaved);
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    &.lens-missing-gps .thumb-status-dot.dot-missing-gps {
+        background: var(--lens-missing-gps);
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    &.lens-missing-gps-time .thumb-status-dot.dot-missing-gps-time {
+        background: var(--lens-missing-gps-time);
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    &.has-adjusted .thumb-adjusted {
+        display: inline-block;
+    }
+
+    &.has-gps-adjusted .thumb-gps-adjusted {
+        display: inline-block;
+    }
 }
 
 .thumb-image {
@@ -1236,6 +1252,7 @@ body.lens-missing-gps-time-highlight-active .lens-wrap[data-lens-wrap="missing-g
     inset: 0;
     width: 100%;
     height: 100%;
+    border-radius: inherit;
     object-fit: cover;
     display: block;
 }
@@ -1269,10 +1286,6 @@ body.lens-missing-gps-time-highlight-active .lens-wrap[data-lens-wrap="missing-g
     display: none;
 }
 
-.photo-card.has-adjusted .thumb-adjusted {
-    display: inline-block;
-}
-
 .thumb-gps-adjusted {
     position: absolute;
     top: 1.7rem;
@@ -1284,10 +1297,6 @@ body.lens-missing-gps-time-highlight-active .lens-wrap[data-lens-wrap="missing-g
     border-radius: 4px;
     padding: 0.12rem 0.33rem;
     display: none;
-}
-
-.photo-card.has-gps-adjusted .thumb-gps-adjusted {
-    display: inline-block;
 }
 
 .empty-state {

@@ -260,10 +260,6 @@
                     <div class="empty-state error">{{.page.TargetError}}</div>
                     {{else if .page.TargetPhotos}}
                     {{range .page.TargetPhotos}}
-                    <div class="lens-wrap lens-unsaved" data-lens-wrap="unsaved">
-                    <div class="lens-wrap lens-missing-gps" data-lens-wrap="missing-gps">
-                    <div class="lens-wrap lens-missing-gps-time" data-lens-wrap="missing-gps-time">
-                    <div class="lens-wrap lens-selected" data-lens-wrap="selected">
                     <div
                         class="thumb photo-card"
                         data-photo-id="{{.ID}}"
@@ -297,12 +293,13 @@
                         {{if .ThumbnailURL}}
                         <img class="thumb-image" src="{{.ThumbnailURL}}" alt="{{.BaseName}}" loading="lazy">
                         {{end}}
+                        <div class="thumb-status-dots" aria-hidden="true">
+                            <span class="thumb-status-dot dot-unsaved" title="Unsaved changes"></span>
+                            <span class="thumb-status-dot dot-missing-gps" title="Missing GPS"></span>
+                            <span class="thumb-status-dot dot-missing-gps-time" title="Missing GPS time"></span>
+                        </div>
                         <span class="thumb-gps-adjusted">GPS adjusted</span>
                         <span class="thumb-title">{{.BaseName}}</span>
-                    </div>
-                    </div>
-                    </div>
-                    </div>
                     </div>
                     {{end}}
                     {{else}}
@@ -514,10 +511,6 @@
                     <div class="empty-state error">{{.page.ReferenceError}}</div>
                     {{else if .page.ReferencePhotos}}
                     {{range .page.ReferencePhotos}}
-                    <div class="lens-wrap lens-unsaved" data-lens-wrap="unsaved">
-                    <div class="lens-wrap lens-missing-gps" data-lens-wrap="missing-gps">
-                    <div class="lens-wrap lens-missing-gps-time" data-lens-wrap="missing-gps-time">
-                    <div class="lens-wrap lens-selected" data-lens-wrap="selected">
                     <div
                         class="thumb photo-card"
                         data-photo-id="{{.ID}}"
@@ -551,12 +544,13 @@
                         {{if .ThumbnailURL}}
                         <img class="thumb-image" src="{{.ThumbnailURL}}" alt="{{.BaseName}}" loading="lazy">
                         {{end}}
+                        <div class="thumb-status-dots" aria-hidden="true">
+                            <span class="thumb-status-dot dot-unsaved" title="Unsaved changes"></span>
+                            <span class="thumb-status-dot dot-missing-gps" title="Missing GPS"></span>
+                            <span class="thumb-status-dot dot-missing-gps-time" title="Missing GPS time"></span>
+                        </div>
                         <span class="thumb-gps-adjusted">GPS adjusted</span>
                         <span class="thumb-title">{{.BaseName}}</span>
-                    </div>
-                    </div>
-                    </div>
-                    </div>
                     </div>
                     {{end}}
                     {{else}}

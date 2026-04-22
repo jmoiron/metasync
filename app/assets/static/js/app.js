@@ -103,6 +103,7 @@ $(function() {
                 model: photoModelByID[photoID] || null,
                 $el: $card
             });
+            ensureStatusDots($card);
             ensureAdjustedBadge($card);
         });
 
@@ -1338,7 +1339,7 @@ $(function() {
 
             var $grid = $('<div class="thumb-grid"></div>');
             group.cards.forEach(function(info) {
-                $grid.append(info.$el.closest('[data-lens-wrap="unsaved"]'));
+                $grid.append(info.$el);
             });
             $group.append($grid);
 
@@ -1532,9 +1533,6 @@ $(function() {
 
     function applyLensHighlightState() {
         $('body')
-            .toggleClass('lens-unsaved-highlight-active', !!lensSettings.unsaved.highlight)
-            .toggleClass('lens-missing-gps-highlight-active', !!lensSettings['missing-gps'].highlight)
-            .toggleClass('lens-missing-gps-time-highlight-active', !!lensSettings['missing-gps-time'].highlight)
             .toggleClass('lens-unsaved-hide-active', !!lensSettings.unsaved.hide)
             .toggleClass('lens-missing-gps-hide-active', !!lensSettings['missing-gps'].hide)
             .toggleClass('lens-missing-gps-time-hide-active', !!lensSettings['missing-gps-time'].hide);
@@ -1552,9 +1550,9 @@ $(function() {
             var hasUnsaved = cardHasUnsavedChanges($card);
             var missingGPS = cardMissingGPS($card);
             var missingGPSTime = cardMissingGPSTime($card);
-            cardLensWrap($card, 'unsaved').toggleClass('is-highlighted', lensSettings.unsaved.highlight && hasUnsaved);
-            cardLensWrap($card, 'missing-gps').toggleClass('is-highlighted', lensSettings['missing-gps'].highlight && missingGPS);
-            cardLensWrap($card, 'missing-gps-time').toggleClass('is-highlighted', lensSettings['missing-gps-time'].highlight && missingGPSTime);
+            $card.toggleClass('lens-unsaved', lensSettings.unsaved.highlight && hasUnsaved);
+            $card.toggleClass('lens-missing-gps', lensSettings['missing-gps'].highlight && missingGPS);
+            $card.toggleClass('lens-missing-gps-time', lensSettings['missing-gps-time'].highlight && missingGPSTime);
 
             var isTargetCard = String($card.data('side') || '') === 'target';
             if (isTargetCard) {
@@ -2245,32 +2243,35 @@ $(function() {
         return null;
     }
 
-    function cardLensWrap($card, lensName) {
-        return $card.closest('[data-lens-wrap="' + lensName + '"]');
-    }
-
-    function cardSelectionWrap($card) {
-        return cardLensWrap($card, 'selected');
-    }
-
     function cardOuterWrap($card) {
-        return cardLensWrap($card, 'unsaved');
+        return $card;
     }
 
     function syncSelectionOutlineState() {
-        allCards().forEach(function($card) {
-            cardSelectionWrap($card).toggleClass('is-highlighted', $card.hasClass('is-selected'));
-        });
         updatePaneSummaries();
     }
 
     function ensureAdjustedBadge($card) {
+        ensureStatusDots($card);
         if ($card.find('.thumb-adjusted').length === 0) {
             $card.append('<span class="thumb-adjusted"></span>');
         }
         if ($card.find('.thumb-gps-adjusted').length === 0) {
             $card.append('<span class="thumb-gps-adjusted">GPS adjusted</span>');
         }
+    }
+
+    function ensureStatusDots($card) {
+        if ($card.find('.thumb-status-dots').length > 0) {
+            return;
+        }
+        $card.append(
+            '<div class="thumb-status-dots" aria-hidden="true">' +
+                '<span class="thumb-status-dot dot-unsaved" title="Unsaved changes"></span>' +
+                '<span class="thumb-status-dot dot-missing-gps" title="Missing GPS"></span>' +
+                '<span class="thumb-status-dot dot-missing-gps-time" title="Missing GPS time"></span>' +
+            '</div>'
+        );
     }
 
     function paneTimeView($pane) {
