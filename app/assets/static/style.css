@@ -836,7 +836,12 @@ a:hover {
   place-items: center;
   border: 0;
   background: transparent;
+  color: var(--muted);
   box-shadow: none;
+}
+.metadata-toggle-btn.exif-modal-action:hover {
+  color: var(--text);
+  background: transparent;
 }
 .exif-modal-heading {
   display: grid;
