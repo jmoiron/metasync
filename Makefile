@@ -14,6 +14,10 @@ css:
 icons:
 	$(MAKE) -C app/assets/static fa
 
+.PHONY: js-test
+js-test:
+	$(MAKE) -C app/assets/static test
+
 .PHONY: build
 build: css
 	$(GO) build -o metasync .
@@ -23,7 +27,7 @@ install: build
 	$(GO) install
 
 .PHONY: test
-test: css
+test: css js-test
 	$(GO) test ./...
 
 .PHONY: fmt

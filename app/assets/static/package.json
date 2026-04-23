@@ -1,0 +1,9 @@
+{
+  "name": "metasync-static-js",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Lightweight JS tests for metasync static assets",
+  "scripts": {
+    "test": "node --test js/tests/*.test.js"
+  }
+}
