@@ -15,8 +15,16 @@ func IsRawPath(path string) bool {
 	return img.IsRawPath(path)
 }
 
+func IsBrowserViewablePath(path string) bool {
+	return img.IsBrowserViewablePath(path)
+}
+
 func EnsureRawPreview(srcPath, cacheDir, cacheKey string) (string, error) {
 	return img.EnsureRawPreview(srcPath, cacheDir, cacheKey)
+}
+
+func EnsurePreview(srcPath, cacheDir, cacheKey string, maxBytes int64, maxWidth, maxHeight int) (string, error) {
+	return img.EnsurePreview(srcPath, cacheDir, cacheKey, maxBytes, maxWidth, maxHeight)
 }
 
 func Configure(workers int) {

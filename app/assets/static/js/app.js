@@ -84,6 +84,8 @@ $(function() {
         localStorage.setItem('pane-view-' + resolvedSide, nextMode);
         syncPaneViews();
     };
+    bindTimelineScrollForPane(panes.target);
+    bindTimelineScrollForPane(panes.reference);
     renderGroupsWithOptionalSpinner([panes.target, panes.reference], function() {
         reportInitialDisplayTimelineMsUsage();
         refreshSyncUI();
@@ -107,6 +109,9 @@ $(function() {
                 side: sideName,
                 isVisible: true,
                 baseExifMs: parseExifTime($card.attr('data-base-exif-time')),
+                sourcePath: strField(model, 'path'),
+                relativePath: strField(model, 'relative_path'),
+                baseName: strField(model, 'basename'),
                 model: model || null,
                 $el: $card
             };
@@ -123,7 +128,17 @@ $(function() {
             $pane: $pane,
             cards: cards,
             photoModelByID: photoModelByID,
-            $timezoneSelect: $pane.find('[data-timezone-select]').first()
+            $timezoneSelect: $pane.find('[data-timezone-select]').first(),
+            $timeline: $pane.find('.timeline').first(),
+            $rail: $pane.find('[data-timeline-rail]').first(),
+            virtual: {
+                groups: [],
+                sortedTimeline: [],
+                mountedRange: null,
+                rail: null,
+                mode: 'session'
+            },
+            railTickRAF: 0
         };
     }
 
@@ -474,7 +489,11 @@ $(function() {
         pane.$pane.find('[data-pane-title-path]').prop('hidden', mode === 'preview');
         pane.$pane.find('.pane-header-meta').prop('hidden', mode === 'preview');
         pane.$pane.find('.metadata-panel').prop('hidden', mode === 'preview');
+        pane.$pane.find('[data-timeline-rail]').prop('hidden', mode !== 'thumbs');
+        var $download = pane.$pane.find('[data-pane-preview-download]').first();
+        $download.prop('hidden', mode !== 'preview').attr('href', '#').removeAttr('download');
         if (mode !== 'preview') {
+            scheduleTimelineRailTick(pane);
             return;
         }
 
@@ -484,20 +503,154 @@ $(function() {
         if ($source.length === 0) {
             $empty.text('Select a ' + oppositeLabel + ' to preview it here.').prop('hidden', false);
             $image.prop('hidden', true).attr('src', '').attr('alt', '');
+            $download.prop('hidden', true).attr('href', '#').removeAttr('download');
             return;
         }
 
-        var path = String($source.attr('data-path') || '');
+        var path = previewSourcePathForCard(oppositePane, $source);
         var basename = String($source.attr('data-basename') || 'selected image');
         if (!path) {
             $empty.text('Selected ' + oppositeLabel + ' path is missing.').prop('hidden', false);
             $image.prop('hidden', true).attr('src', '').attr('alt', '');
+            $download.prop('hidden', true).attr('href', '#').removeAttr('download');
             return;
         }
-        $image.attr('src', '/image?path=' + encodeURIComponent(path));
+        $image.attr('src', imageURLForPath(path));
         $image.attr('alt', basename);
         $image.prop('hidden', false);
         $empty.prop('hidden', true);
+        $download.attr('href', imageURLForPath(path, { download: true }));
+        $download.attr('download', basename);
+        $download.prop('hidden', false);
+    }
+
+    function previewSourcePathForCard(pane, $card) {
+        if (!$card || $card.length === 0) {
+            return '';
+        }
+
+        var photoID = String($card.attr('data-photo-id') || '');
+        if (pane && photoID) {
+            var info = cardInfoByID(pane, photoID);
+            if (info) {
+                if (info.sourcePath) {
+                    return info.sourcePath;
+                }
+                if (info.model) {
+                    var modelPath = strField(info.model, 'path');
+                    if (modelPath) {
+                        return modelPath;
+                    }
+                }
+            }
+        }
+
+        var path = String($card.attr('data-path') || '');
+        if (isAbsoluteFilesystemPath(path)) {
+            return path;
+        }
+
+        var relativePath = String($card.attr('data-relative-path') || '');
+        if ((!relativePath || relativePath === path) && pane && photoID) {
+            var infoFallback = cardInfoByID(pane, photoID);
+            if (infoFallback && infoFallback.relativePath) {
+                relativePath = infoFallback.relativePath;
+            }
+            if ((!path || path === relativePath) && infoFallback && infoFallback.baseName) {
+                path = infoFallback.baseName;
+            }
+        }
+        if (isAbsoluteFilesystemPath(relativePath)) {
+            return relativePath;
+        }
+
+        var baseDir = paneBaseDirectory(pane);
+        if (baseDir) {
+            if (relativePath) {
+                return joinFilesystemPath(baseDir, relativePath);
+            }
+            if (path) {
+                return joinFilesystemPath(baseDir, path);
+            }
+        }
+
+        return path || relativePath;
+    }
+
+    function paneBaseDirectory(pane) {
+        if (!pane || !pane.$pane || pane.$pane.length === 0) {
+            return '';
+        }
+        return String(pane.$pane.find('[data-pane-title-path]').first().attr('title') || '');
+    }
+
+    function isAbsoluteFilesystemPath(path) {
+        path = String(path || '');
+        if (!path) {
+            return false;
+        }
+        if (path.charAt(0) === '/' || path.charAt(0) === '\\') {
+            return true;
+        }
+        return /^[A-Za-z]:[\\/]/.test(path);
+    }
+
+    function joinFilesystemPath(base, suffix) {
+        var normalizedBase = String(base || '');
+        var normalizedSuffix = String(suffix || '');
+        if (!normalizedBase) {
+            return normalizedSuffix;
+        }
+        if (!normalizedSuffix) {
+            return normalizedBase;
+        }
+
+        var windowsBase = /^[A-Za-z]:[\\/]/.test(normalizedBase);
+        var sep = windowsBase ? '\\' : '/';
+        normalizedBase = normalizedBase.replace(/[\\/]+$/, '');
+        normalizedSuffix = normalizedSuffix.replace(/^[\\/]+/, '');
+        return normalizedBase + sep + normalizedSuffix;
+    }
+
+    function imageURLForPath(path, opts) {
+        var normalized = String(path || '').replace(/\\/g, '/');
+        var parts = normalized.split('/').filter(function(part) {
+            return part !== '';
+        }).map(function(part) {
+            return encodeURIComponent(part);
+        });
+        var url = '/image/' + parts.join('/');
+        var params = [];
+        if (opts && opts.download) {
+            params.push('download=1');
+        }
+        if (params.length > 0) {
+            url += '?' + params.join('&');
+        }
+        return url;
+    }
+
+    function bindTimelineScrollForPane(pane) {
+        if (!pane || !pane.$timeline || pane.$timeline.length === 0) {
+            return;
+        }
+        if (pane.$timeline.attr('data-rail-bound') === '1') {
+            return;
+        }
+        pane.$timeline.attr('data-rail-bound', '1');
+        pane.$timeline.on('scroll', function() {
+            scheduleTimelineRailTick(pane);
+        });
+    }
+
+    function scheduleTimelineRailTick(pane) {
+        if (!pane || pane.railTickRAF) {
+            return;
+        }
+        pane.railTickRAF = window.requestAnimationFrame(function() {
+            pane.railTickRAF = 0;
+            updateTimelineRailCurrentMarker(pane);
+        });
     }
 
     function bindMetadataToggle() {
@@ -694,6 +847,18 @@ $(function() {
             }
             selectClosestReferenceForTimestamp(targetMs);
         });
+        $workspace.on('click', '.timeline-rail-marker', function(evt) {
+            evt.preventDefault();
+            evt.stopPropagation();
+            var $marker = $(this);
+            var targetID = String($marker.attr('data-target-id') || '');
+            var $pane = $marker.closest('.pane');
+            var pane = $pane.is(panes.reference.$pane) ? panes.reference : panes.target;
+            if (!targetID || !pane) {
+                return;
+            }
+            scrollPaneToCardID(pane, targetID);
+        });
 
         syncTimezoneFixControls();
     }
@@ -765,6 +930,7 @@ $(function() {
         var $nextPane = $(html.trim());
         pane.$pane.replaceWith($nextPane);
         panes[side] = buildPaneState($nextPane, side);
+        bindTimelineScrollForPane(panes[side]);
         if (side === 'target') {
             targetSelectionAnchorID = '';
         }
@@ -1417,6 +1583,7 @@ $(function() {
         var sessionMin = Math.max(1, Number($('#session-minutes').val()) || 5);
         var groups = buildGroups(pane, pane.cards, mode, sessionMin);
         renderGroupListIntoTimeline($timeline, pane, groups, mode, scope, selectedTargetID, prevScrollTop);
+        updatePaneVirtualStateAndRail(pane, groups, mode);
     }
 
     function renderGroupsStaticForPane(pane) {
@@ -1438,6 +1605,7 @@ $(function() {
         var sessionMin = Math.max(1, Number($('#session-minutes').val()) || 5);
         var groups = buildGroupsStatic(pane, pane.cards, mode, sessionMin);
         renderGroupListIntoTimeline($timeline, pane, groups, mode, scope, selectedTargetID, prevScrollTop);
+        updatePaneVirtualStateAndRail(pane, groups, mode);
     }
 
     function renderGroupListIntoTimeline($timeline, pane, groups, mode, scope, selectedTargetID, prevScrollTop) {
@@ -1486,6 +1654,224 @@ $(function() {
             return;
         }
         pane.$pane.find('[data-pane-build-spinner]').prop('hidden', !visible);
+    }
+
+    function updatePaneVirtualStateAndRail(pane, groups, mode) {
+        if (!pane) {
+            return;
+        }
+        pane.virtual.groups = groups || [];
+        pane.virtual.mode = String(mode || 'session');
+        pane.virtual.sortedTimeline = buildSortedTimelineCards(pane);
+        pane.virtual.rail = buildTimelineRailModel(pane.virtual.sortedTimeline);
+        renderTimelineRail(pane);
+        scheduleTimelineRailTick(pane);
+    }
+
+    function buildSortedTimelineCards(pane) {
+        return pane.cards
+            .map(function(info) {
+                return {
+                    id: info.id,
+                    ms: displayTimelineMsForPane(pane, info.$el)
+                };
+            })
+            .filter(function(item) {
+                return Number.isFinite(item.ms) && item.id;
+            })
+            .sort(function(a, b) {
+                if (a.ms === b.ms) {
+                    return String(a.id).localeCompare(String(b.id));
+                }
+                return a.ms - b.ms;
+            });
+    }
+
+    function buildTimelineRailModel(sortedTimeline) {
+        if (!sortedTimeline || sortedTimeline.length === 0) {
+            return {
+                minMs: 0,
+                maxMs: 0,
+                majorUnit: 'day',
+                markers: []
+            };
+        }
+        var minMs = sortedTimeline[0].ms;
+        var maxMs = sortedTimeline[sortedTimeline.length - 1].ms;
+        var spanDays = (maxMs - minMs) / (24 * 60 * 60 * 1000);
+        var majorUnit = 'day';
+        var minorUnit = 'hour';
+        if (spanDays >= 365 * 3) {
+            majorUnit = 'year';
+            minorUnit = 'month';
+        } else if (spanDays >= 120) {
+            majorUnit = 'month';
+            minorUnit = 'week';
+        } else if (spanDays >= 35) {
+            majorUnit = 'week';
+            minorUnit = 'day';
+        } else if (spanDays >= 10) {
+            majorUnit = 'day';
+            minorUnit = 'day-half';
+        } else {
+            majorUnit = 'day';
+            minorUnit = 'hour';
+        }
+
+        var seenMajor = {};
+        var seenMinor = {};
+        var majorMarkers = [];
+        var minorMarkers = [];
+        sortedTimeline.forEach(function(item) {
+            var majorKey = markerBucketKey(item.ms, majorUnit);
+            if (!seenMajor[majorKey]) {
+                seenMajor[majorKey] = true;
+                majorMarkers.push({
+                    kind: 'major',
+                    id: item.id,
+                    ms: item.ms,
+                    label: markerLabel(item.ms, majorUnit)
+                });
+            }
+            var minorKey = markerBucketKey(item.ms, minorUnit);
+            if (!seenMinor[minorKey] && !seenMajor[minorKey]) {
+                seenMinor[minorKey] = true;
+                minorMarkers.push({
+                    kind: 'minor',
+                    id: item.id,
+                    ms: item.ms,
+                    label: ''
+                });
+            }
+        });
+
+        if (minorMarkers.length > 90) {
+            var step = Math.ceil(minorMarkers.length / 90);
+            minorMarkers = minorMarkers.filter(function(_, idx) {
+                return idx % step === 0;
+            });
+        }
+        return {
+            minMs: minMs,
+            maxMs: maxMs,
+            majorUnit: majorUnit,
+            markers: majorMarkers.concat(minorMarkers).sort(function(a, b) {
+                return a.ms - b.ms;
+            })
+        };
+    }
+
+    function markerBucketKey(ms, unit) {
+        var d = new Date(ms);
+        var y = d.getUTCFullYear();
+        var m = d.getUTCMonth() + 1;
+        var day = d.getUTCDate();
+        var h = d.getUTCHours();
+        if (unit === 'year') {
+            return String(y);
+        }
+        if (unit === 'month') {
+            return y + '-' + pad2(m);
+        }
+        if (unit === 'week') {
+            return y + '-w' + isoWeekUTC(d);
+        }
+        if (unit === 'day-half') {
+            return y + '-' + pad2(m) + '-' + pad2(day) + '-' + (h < 12 ? 'am' : 'pm');
+        }
+        if (unit === 'hour') {
+            return y + '-' + pad2(m) + '-' + pad2(day) + 'T' + pad2(h);
+        }
+        return y + '-' + pad2(m) + '-' + pad2(day);
+    }
+
+    function markerLabel(ms, unit) {
+        var d = new Date(ms);
+        if (unit === 'year') {
+            return String(d.getUTCFullYear());
+        }
+        if (unit === 'month') {
+            return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' });
+        }
+        if (unit === 'week') {
+            return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+        }
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    }
+
+    function isoWeekUTC(d) {
+        var date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+        var dayNum = date.getUTCDay() || 7;
+        date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+        var yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+        return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    }
+
+    function renderTimelineRail(pane) {
+        if (!pane || !pane.$rail || pane.$rail.length === 0) {
+            return;
+        }
+        var mode = paneViewMode[pane.side] === 'preview' ? 'preview' : 'thumbs';
+        var rail = pane.virtual.rail;
+        if (!rail || !rail.markers || rail.markers.length === 0 || mode !== 'thumbs') {
+            pane.$rail.prop('hidden', true);
+            return;
+        }
+        var span = Math.max(1, rail.maxMs - rail.minMs);
+        var $container = pane.$rail.find('[data-rail-markers]').first();
+        $container.empty();
+        rail.markers.forEach(function(marker) {
+            var ratio = (marker.ms - rail.minMs) / span;
+            var top = Math.max(0, Math.min(1, ratio));
+            var $marker = $('<button type="button" class="timeline-rail-marker"></button>');
+            $marker.toggleClass('is-major', marker.kind === 'major');
+            $marker.toggleClass('is-minor', marker.kind !== 'major');
+            $marker.css('top', (top * 100) + '%');
+            $marker.attr('data-target-id', marker.id);
+            if (marker.kind === 'major') {
+                $marker.append($('<span class="timeline-rail-marker-label"></span>').text(marker.label));
+            }
+            $container.append($marker);
+        });
+        pane.$rail.prop('hidden', false);
+    }
+
+    function updateTimelineRailCurrentMarker(pane) {
+        if (!pane || !pane.$rail || pane.$rail.length === 0 || pane.$timeline.length === 0) {
+            return;
+        }
+        if (pane.$rail.prop('hidden')) {
+            return;
+        }
+        var rail = pane.virtual.rail;
+        if (!rail || !rail.markers || rail.markers.length === 0) {
+            return;
+        }
+        var timelineEl = pane.$timeline.get(0);
+        if (!timelineEl) {
+            return;
+        }
+        var scrollable = Math.max(1, timelineEl.scrollHeight - timelineEl.clientHeight);
+        var ratio = Math.max(0, Math.min(1, timelineEl.scrollTop / scrollable));
+        var ms = rail.minMs + ((rail.maxMs - rail.minMs) * ratio);
+        var $current = pane.$rail.find('[data-rail-current]').first();
+        $current.css('top', (ratio * 100) + '%');
+        pane.$rail.find('[data-rail-current-label]').first().text(markerLabel(ms, rail.majorUnit));
+    }
+
+    function scrollPaneToCardID(pane, id) {
+        var info = cardInfoByID(pane, id);
+        if (!info || !info.$el || pane.$timeline.length === 0) {
+            return;
+        }
+        var cardEl = info.$el.get(0);
+        var timelineEl = pane.$timeline.get(0);
+        if (!cardEl || !timelineEl) {
+            return;
+        }
+        var top = Math.max(0, cardEl.offsetTop - Math.round(timelineEl.clientHeight * 0.35));
+        timelineEl.scrollTop = top;
+        scheduleTimelineRailTick(pane);
     }
 
     function buildGroups(pane, cards, mode, sessionMin) {

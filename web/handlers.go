@@ -20,6 +20,7 @@ import (
 
 	"github.com/Lionparcel/timezonemapper"
 	"github.com/coder/websocket"
+	"github.com/go-chi/chi/v5"
 	"github.com/jmoiron/metasync/exif"
 	"github.com/jmoiron/metasync/nominatim"
 	"github.com/jmoiron/monet/mtr"
@@ -41,6 +42,7 @@ type PageConfig struct {
 	RefreshMetadata   bool
 	Workers           int
 	BatchSize         int
+	PreviewMaxSize    int64
 }
 
 type InitialState struct {
@@ -283,6 +285,12 @@ type GeoLookupCandidate struct {
 	Type        string    `json:"type,omitempty"`
 }
 
+const (
+	defaultPreviewMaxBytes  int64 = 10 * 1024 * 1024
+	defaultPreviewMaxWidth        = 1600
+	defaultPreviewMaxHeight       = 1600
+)
+
 func (h *Handlers) BrowseDirectories(w http.ResponseWriter, r *http.Request) {
 	result, err := xplat.BrowseDirectories(
 		firstNonEmpty(r.URL.Query().Get("path"), h.cfg.DefaultBrowsePath),
@@ -309,9 +317,19 @@ func (h *Handlers) BrowseDirectories(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) Image(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Query().Get("path")
+	path, err := imagePathFromRequest(r)
 	if path == "" {
 		http.Error(w, "missing path", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, "invalid image path", http.StatusBadRequest)
+		return
+	}
+
+	maxBytes, maxWidth, maxHeight, err := h.parsePreviewRequest(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -325,17 +343,28 @@ func (h *Handlers) Image(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if scan.IsRawPath(path) {
+	serveName := filepath.Base(path)
+	cacheKey := ""
+	if h.store != nil {
+		cacheKey = h.store.Hash(path, info.ModTime())
+	}
+	needsPreview := scan.IsRawPath(path) || !scan.IsBrowserViewablePath(path) || info.Size() > maxBytes
+	forceDownload := queryBool(r, "download", false)
+
+	if needsPreview && !forceDownload {
 		if h.store == nil {
 			http.Error(w, "preview cache unavailable", http.StatusInternalServerError)
 			return
 		}
-		cacheKey := h.store.Hash(path, info.ModTime())
-		previewPath, err := scan.EnsureRawPreview(path, h.store.CacheDir, cacheKey)
+		previewPath, err := scan.EnsurePreview(path, h.store.CacheDir, cacheKey, maxBytes, maxWidth, maxHeight)
 		if err != nil {
-			http.Error(w, "failed to generate raw preview", http.StatusInternalServerError)
+			http.Error(w, "failed to generate preview", http.StatusInternalServerError)
 			return
 		}
+		if ext := strings.ToLower(filepath.Ext(serveName)); ext != ".jpg" && ext != ".jpeg" {
+			serveName = strings.TrimSuffix(serveName, filepath.Ext(serveName)) + ".jpg"
+		}
+		w.Header().Set("Content-Disposition", contentDispositionInline(serveName))
 		w.Header().Set("Content-Type", "image/jpeg")
 		http.ServeFile(w, r, previewPath)
 		return
@@ -344,7 +373,135 @@ func (h *Handlers) Image(w http.ResponseWriter, r *http.Request) {
 	if ctype := mime.TypeByExtension(strings.ToLower(filepath.Ext(path))); ctype != "" {
 		w.Header().Set("Content-Type", ctype)
 	}
+	if forceDownload {
+		w.Header().Set("Content-Disposition", contentDispositionAttachment(serveName))
+	} else {
+		w.Header().Set("Content-Disposition", contentDispositionInline(serveName))
+	}
 	http.ServeFile(w, r, path)
+}
+
+func imagePathFromRequest(r *http.Request) (string, error) {
+	if path := strings.TrimSpace(r.URL.Query().Get("path")); path != "" {
+		return path, nil
+	}
+
+	raw := strings.TrimPrefix(r.URL.EscapedPath(), "/image/")
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == r.URL.EscapedPath() {
+		if path := strings.TrimSpace(chi.URLParam(r, "*")); path != "" {
+			raw = path
+		} else {
+			return "", nil
+		}
+	}
+
+	parts := strings.Split(raw, "/")
+	clean := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		unescaped, err := url.PathUnescape(part)
+		if err != nil {
+			return "", err
+		}
+		clean = append(clean, unescaped)
+	}
+	if len(clean) == 0 {
+		return "", nil
+	}
+
+	if len(clean) > 0 && strings.HasSuffix(clean[0], ":") {
+		return filepath.Join(clean...), nil
+	}
+	return string(filepath.Separator) + filepath.Join(clean...), nil
+}
+
+func (h *Handlers) parsePreviewRequest(r *http.Request) (int64, int, int, error) {
+	maxBytes := defaultPreviewMaxBytes
+	if h != nil && h.cfg.PreviewMaxSize > 0 {
+		maxBytes = h.cfg.PreviewMaxSize
+	}
+	if value := strings.TrimSpace(r.URL.Query().Get("size")); value != "" {
+		parsed, err := parseByteSize(value)
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("invalid size")
+		}
+		maxBytes = parsed
+	}
+
+	maxWidth := defaultPreviewMaxWidth
+	maxHeight := defaultPreviewMaxHeight
+	if value := strings.TrimSpace(r.URL.Query().Get("res")); value != "" {
+		w, h, err := parsePreviewBounds(value)
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("invalid res")
+		}
+		maxWidth = w
+		maxHeight = h
+	}
+
+	return maxBytes, maxWidth, maxHeight, nil
+}
+
+func parseByteSize(value string) (int64, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return 0, fmt.Errorf("empty size")
+	}
+	multiplier := int64(1)
+	switch {
+	case strings.HasSuffix(value, "kb"):
+		multiplier = 1024
+		value = strings.TrimSuffix(value, "kb")
+	case strings.HasSuffix(value, "mb"):
+		multiplier = 1024 * 1024
+		value = strings.TrimSuffix(value, "mb")
+	case strings.HasSuffix(value, "gb"):
+		multiplier = 1024 * 1024 * 1024
+		value = strings.TrimSuffix(value, "gb")
+	case strings.HasSuffix(value, "k"):
+		multiplier = 1024
+		value = strings.TrimSuffix(value, "k")
+	case strings.HasSuffix(value, "m"):
+		multiplier = 1024 * 1024
+		value = strings.TrimSuffix(value, "m")
+	case strings.HasSuffix(value, "g"):
+		multiplier = 1024 * 1024 * 1024
+		value = strings.TrimSuffix(value, "g")
+	case strings.HasSuffix(value, "b"):
+		value = strings.TrimSuffix(value, "b")
+	}
+	number, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || number <= 0 {
+		return 0, fmt.Errorf("invalid size")
+	}
+	return int64(number * float64(multiplier)), nil
+}
+
+func parsePreviewBounds(value string) (int, int, error) {
+	parts := strings.Split(strings.ToLower(strings.TrimSpace(value)), "x")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("invalid res")
+	}
+	w, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil || w <= 0 {
+		return 0, 0, fmt.Errorf("invalid res")
+	}
+	h, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err != nil || h <= 0 {
+		return 0, 0, fmt.Errorf("invalid res")
+	}
+	return w, h, nil
+}
+
+func contentDispositionInline(filename string) string {
+	return fmt.Sprintf("inline; filename=%q", filename)
+}
+
+func contentDispositionAttachment(filename string) string {
+	return fmt.Sprintf("attachment; filename=%q", filename)
 }
 
 func (h *Handlers) TimezoneOffsets(w http.ResponseWriter, r *http.Request) {

@@ -153,6 +153,9 @@
 .fa-crosshairs {
   --fa: "\f05b";
 }
+.fa-download {
+  --fa: "\f019";
+}
 .fa-ellipsis-vertical {
   --fa: "\f142";
 }

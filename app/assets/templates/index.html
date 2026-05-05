@@ -251,6 +251,11 @@
                     <select class="timezone-select" data-timezone-select aria-label="Target timezone view"></select>
                     {{end}}
                 </div>
+                <div class="pane-header-actions">
+                    <a href="#" class="pane-header-action-link" data-pane-preview-download hidden title="Download original image" aria-label="Download original image">
+                        <span class="fa-solid fa-download" aria-hidden="true"></span>
+                    </a>
+                </div>
             </div>
             {{if and .page.TargetPaths (not .page.TargetBrowser)}}
             <div class="pane-media-view">
@@ -265,8 +270,16 @@
                     <div class="empty-state">No target images found in the selected directory.</div>
                     {{end}}
                 </div>
+        </div>
+        <div class="timeline-rail" data-timeline-rail hidden>
+            <div class="timeline-rail-track" data-rail-track>
+                <div class="timeline-rail-markers" data-rail-markers></div>
+                <div class="timeline-rail-current" data-rail-current>
+                    <span class="timeline-rail-current-label" data-rail-current-label></span>
+                </div>
             </div>
-            <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
+        </div>
+        <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
                 <div class="pane-preview-empty empty-state" data-pane-preview-empty>
                     Select a reference image to preview it here.
                 </div>
@@ -373,8 +386,16 @@
                         <input type="text" class="directory-search-input" data-directory-search-input spellcheck="false" autocomplete="off" placeholder="Filter directories">
                     </div>
                 </div>
+        </div>
+        <div class="timeline-rail" data-timeline-rail hidden>
+            <div class="timeline-rail-track" data-rail-track>
+                <div class="timeline-rail-markers" data-rail-markers></div>
+                <div class="timeline-rail-current" data-rail-current>
+                    <span class="timeline-rail-current-label" data-rail-current-label></span>
+                </div>
             </div>
-            <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
+        </div>
+        <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
                 <div class="pane-preview-empty empty-state" data-pane-preview-empty>
                     Select a reference image to preview it here.
                 </div>
@@ -430,8 +451,16 @@
                         <input type="text" class="directory-search-input" data-directory-search-input spellcheck="false" autocomplete="off" placeholder="Filter directories">
                     </div>
                 </div>
+        </div>
+        <div class="timeline-rail" data-timeline-rail hidden>
+            <div class="timeline-rail-track" data-rail-track>
+                <div class="timeline-rail-markers" data-rail-markers></div>
+                <div class="timeline-rail-current" data-rail-current>
+                    <span class="timeline-rail-current-label" data-rail-current-label></span>
+                </div>
             </div>
-            <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
+        </div>
+        <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
                 <div class="pane-preview-empty empty-state" data-pane-preview-empty>
                     Select a reference image to preview it here.
                 </div>
@@ -467,6 +496,11 @@
                     <select class="timezone-select" data-timezone-select aria-label="Reference timezone view"></select>
                     {{end}}
                 </div>
+                <div class="pane-header-actions">
+                    <a href="#" class="pane-header-action-link" data-pane-preview-download hidden title="Download original image" aria-label="Download original image">
+                        <span class="fa-solid fa-download" aria-hidden="true"></span>
+                    </a>
+                </div>
             </div>
             {{if and .page.ReferencePaths (not .page.ReferenceBrowser)}}
             <div class="pane-media-view">
@@ -481,8 +515,16 @@
                     <div class="empty-state">No reference images found in the selected directory.</div>
                     {{end}}
                 </div>
+        </div>
+        <div class="timeline-rail" data-timeline-rail hidden>
+            <div class="timeline-rail-track" data-rail-track>
+                <div class="timeline-rail-markers" data-rail-markers></div>
+                <div class="timeline-rail-current" data-rail-current>
+                    <span class="timeline-rail-current-label" data-rail-current-label></span>
+                </div>
             </div>
-            <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
+        </div>
+        <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
                 <div class="pane-preview-empty empty-state" data-pane-preview-empty>
                     Select a target image to preview it here.
                 </div>
@@ -589,8 +631,16 @@
                         <input type="text" class="directory-search-input" data-directory-search-input spellcheck="false" autocomplete="off" placeholder="Filter directories">
                     </div>
                 </div>
+        </div>
+        <div class="timeline-rail" data-timeline-rail hidden>
+            <div class="timeline-rail-track" data-rail-track>
+                <div class="timeline-rail-markers" data-rail-markers></div>
+                <div class="timeline-rail-current" data-rail-current>
+                    <span class="timeline-rail-current-label" data-rail-current-label></span>
+                </div>
             </div>
-            <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
+        </div>
+        <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
                 <div class="pane-preview-empty empty-state" data-pane-preview-empty>
                     Select a target image to preview it here.
                 </div>
@@ -646,8 +696,16 @@
                         <input type="text" class="directory-search-input" data-directory-search-input spellcheck="false" autocomplete="off" placeholder="Filter directories">
                     </div>
                 </div>
+        </div>
+        <div class="timeline-rail" data-timeline-rail hidden>
+            <div class="timeline-rail-track" data-rail-track>
+                <div class="timeline-rail-markers" data-rail-markers></div>
+                <div class="timeline-rail-current" data-rail-current>
+                    <span class="timeline-rail-current-label" data-rail-current-label></span>
+                </div>
             </div>
-            <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
+        </div>
+        <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
                 <div class="pane-preview-empty empty-state" data-pane-preview-empty>
                     Select a target image to preview it here.
                 </div>

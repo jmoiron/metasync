@@ -38,6 +38,7 @@ type Config struct {
 	RefreshMetadata bool
 	Workers         int
 	BatchSize       int
+	PreviewMaxSize  int64
 }
 
 type App struct {
@@ -79,6 +80,7 @@ func New(cfg Config) (*App, error) {
 		RefreshMetadata:   cfg.RefreshMetadata,
 		Workers:           cfg.Workers,
 		BatchSize:         cfg.BatchSize,
+		PreviewMaxSize:    cfg.PreviewMaxSize,
 	}
 
 	exif.Configure(cfg.Workers, cfg.BatchSize)
@@ -107,7 +109,7 @@ func New(cfg Config) (*App, error) {
 	r.Post("/geolookup", h.GeoLookup)
 	r.Post("/timezone-offsets", h.TimezoneOffsets)
 	r.Get("/browse", h.BrowseDirectories)
-	r.Get("/image", h.Image)
+	r.Get("/image/*", h.Image)
 	r.Get("/exif", h.InspectExif)
 	r.Get("/ws", h.ProgressWS)
 	r.Get("/healthz", h.Healthz)

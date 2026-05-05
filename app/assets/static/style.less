@@ -975,6 +975,23 @@ a:hover {
     flex-wrap: wrap;
 }
 
+.pane-header-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.pane-header-action-link {
+    color: var(--muted);
+    text-decoration: none;
+    line-height: 1;
+}
+
+.pane-header-action-link:hover {
+    color: var(--accent);
+}
+
 .pane-header h2 {
     margin: 0;
     font-size: 1.05rem;
@@ -1036,7 +1053,7 @@ a:hover {
 .timeline {
     overflow: auto;
     min-height: 0;
-    padding: 0.85rem;
+    padding: 0.85rem 2.9rem 0.85rem 0.85rem;
     background: var(--surface);
     display: grid;
     gap: 0.7rem;
@@ -1095,6 +1112,123 @@ a:hover {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
     gap: 0.75rem;
+}
+
+.timeline-rail {
+    position: absolute;
+    top: 0.7rem;
+    right: 0.35rem;
+    bottom: 0.7rem;
+    width: 2.2rem;
+    z-index: 6;
+    pointer-events: none;
+}
+
+.timeline-rail-track {
+    position: absolute;
+    inset: 0;
+}
+
+.timeline-rail-track::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0.6rem;
+    width: 1px;
+    background: color-mix(in srgb, var(--border) 72%, transparent 28%);
+}
+
+.timeline-rail-markers {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.timeline-rail-marker {
+    position: absolute;
+    right: 0.6rem;
+    transform: translateY(-50%);
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    pointer-events: auto;
+    padding: 0;
+    min-width: 0;
+    line-height: 1;
+}
+
+.timeline-rail-marker::before {
+    content: "";
+    position: absolute;
+    right: -0.19rem;
+    top: 50%;
+    transform: translateY(-50%);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--muted) 78%, transparent 22%);
+}
+
+.timeline-rail-marker.is-major::before {
+    width: 0.5rem;
+    height: 0.5rem;
+}
+
+.timeline-rail-marker.is-minor::before {
+    width: 0.28rem;
+    height: 0.28rem;
+}
+
+.timeline-rail-marker-label {
+    position: absolute;
+    right: 0.82rem;
+    transform: translateY(-50%);
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--muted);
+}
+
+.timeline-rail-marker:hover::before {
+    background: var(--accent);
+}
+
+.timeline-rail-marker:hover .timeline-rail-marker-label {
+    color: var(--text);
+}
+
+.timeline-rail-current {
+    position: absolute;
+    right: 0.6rem;
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+.timeline-rail-current::before {
+    content: "";
+    position: absolute;
+    right: -0.21rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0.62rem;
+    height: 0.62rem;
+    border-radius: 999px;
+    background: var(--accent);
+}
+
+.timeline-rail-current-label {
+    position: absolute;
+    right: 0.88rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text);
+    background: color-mix(in srgb, var(--surface) 90%, var(--hover-bg) 10%);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.68rem;
+    white-space: nowrap;
+    padding: 0.08rem 0.28rem;
 }
 
 .pane-build-spinner {
