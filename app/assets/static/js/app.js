@@ -2316,18 +2316,18 @@ $(function() {
         }
         var scrollable = Math.max(1, timelineEl.scrollHeight - timelineEl.clientHeight);
         var ratio = Math.max(0, Math.min(1, timelineEl.scrollTop / scrollable));
-        var targetY = timelineEl.scrollTop + timelineRailAnchor(timelineEl);
+        var targetY = timelineEl.scrollTop;
         var lo = 0;
         var hi = pane.virtual.sortedTimeline.length;
         while (lo < hi) {
             var mid = (lo + hi) >> 1;
-            if (pane.virtual.sortedTimeline[mid].scrollY < targetY) {
+            if (pane.virtual.sortedTimeline[mid].scrollY <= targetY) {
                 lo = mid + 1;
             } else {
                 hi = mid;
             }
         }
-        var currentItem = pane.virtual.sortedTimeline[Math.min(lo, pane.virtual.sortedTimeline.length - 1)];
+        var currentItem = pane.virtual.sortedTimeline[Math.max(0, lo - 1)];
         var ms = currentItem ? currentItem.ms : rail.minMs;
         var $current = pane.$rail.find('[data-rail-current]').first();
         $current.css('top', (ratio * 100) + '%');

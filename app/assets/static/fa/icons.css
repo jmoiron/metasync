@@ -216,6 +216,9 @@
 .fa-paperclip {
   --fa: "\f0c6";
 }
+.fa-paste {
+  --fa: "\f0ea";
+}
 .fa-pen {
   --fa: "\f304";
 }
