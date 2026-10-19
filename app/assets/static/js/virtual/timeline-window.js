@@ -24,6 +24,13 @@ function computeMountWindow(total, center, overscan) {
     return { start: start, end: end };
 }
 
-module.exports = {
+var timelineWindowAPI = {
     computeMountWindow: computeMountWindow
 };
+
+if (typeof window !== 'undefined') {
+    window.metasyncTimelineWindow = timelineWindowAPI;
+}
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = timelineWindowAPI;
+}

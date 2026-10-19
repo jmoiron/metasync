@@ -358,6 +358,7 @@ func (h *Handlers) Image(w http.ResponseWriter, r *http.Request) {
 		}
 		previewPath, err := scan.EnsurePreview(path, h.store.CacheDir, cacheKey, maxBytes, maxWidth, maxHeight)
 		if err != nil {
+			slog.Error("failed to generate image preview", "path", path, "error", err)
 			http.Error(w, "failed to generate preview", http.StatusInternalServerError)
 			return
 		}

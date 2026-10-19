@@ -2,11 +2,20 @@ package img
 
 import (
 	"fmt"
+	"image"
+	"image/jpeg"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	_ "image/gif"
+	_ "image/png"
+
+	"golang.org/x/image/draw"
+	_ "golang.org/x/image/tiff"
+	_ "golang.org/x/image/webp"
 )
 
 const (
@@ -90,22 +99,54 @@ func EnsurePreview(srcPath, cacheDir, cacheKey string, maxBytes int64, maxWidth,
 	defer os.Remove(tmpPath)
 
 	geometry := fmt.Sprintf("%dx%d>", maxWidth, maxHeight)
-	cmd := exec.Command(
-		"convert",
-		srcPath,
-		"-auto-orient",
-		"-filter", "Catrom",
-		"-resize", geometry,
-		"-quality", "88",
-		tmpPath,
-	)
-	if err := cmd.Run(); err != nil {
-		return "", err
+	if err := resizePreviewGo(srcPath, tmpPath, maxWidth, maxHeight); err != nil {
+		cmd := exec.Command(
+			"convert",
+			srcPath,
+			"-auto-orient",
+			"-filter", "Catrom",
+			"-resize", geometry,
+			"-quality", "88",
+			tmpPath,
+		)
+		output, convertErr := cmd.CombinedOutput()
+		if convertErr != nil {
+			return "", fmt.Errorf("Go image resize: %v; convert: %w: %s", err, convertErr, strings.TrimSpace(string(output)))
+		}
 	}
 	if err := os.Rename(tmpPath, dstPath); err != nil {
 		return "", err
 	}
 	return dstPath, nil
+}
+
+func resizePreviewGo(srcPath, dstPath string, maxWidth, maxHeight int) error {
+	in, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	src, _, err := image.Decode(in)
+	if err != nil {
+		return err
+	}
+
+	srcBounds := src.Bounds()
+	dstWidth, dstHeight := fitBox(srcBounds.Dx(), srcBounds.Dy(), maxWidth, maxHeight)
+	dst := image.NewRGBA(image.Rect(0, 0, dstWidth, dstHeight))
+	draw.CatmullRom.Scale(dst, dst.Bounds(), src, srcBounds, draw.Over, nil)
+
+	out, err := os.Create(dstPath)
+	if err != nil {
+		return err
+	}
+	encodeErr := jpeg.Encode(out, dst, &jpeg.Options{Quality: 88})
+	closeErr := out.Close()
+	if encodeErr != nil {
+		return encodeErr
+	}
+	return closeErr
 }
 
 func EnsureRawPreview(srcPath, cacheDir, cacheKey string) (string, error) {

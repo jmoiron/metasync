@@ -27,10 +27,8 @@
                     <span class="fa-solid fa-floppy-disk" aria-hidden="true"></span>
                     <span>Save</span>
                 </button>
-                <button class="theme-toggle-nav" id="theme-toggle" title="toggle theme" type="button">
-                    <span class="theme-icon theme-sun" aria-hidden="true">Light</span>
-                    <span class="theme-icon theme-moon" aria-hidden="true">Dark</span>
-                    <span class="theme-toggle-pill"></span>
+                <button class="menu-link settings-toggle" id="settings-toggle" type="button" data-menu-target="settings-menu" aria-expanded="false" aria-label="Settings" title="Settings">
+                    <span class="fa-solid fa-gear" aria-hidden="true"></span>
                 </button>
             </div>
         </div>
@@ -68,6 +66,20 @@
                 <label class="header-dropdown-field session-minutes-wrap">
                     <span>Session (min)</span>
                     <input type="number" id="session-minutes" min="1" value="5">
+                </label>
+            </div>
+            <div class="header-dropdown header-dropdown-menu settings-menu" id="settings-menu" hidden>
+                <div class="settings-menu-title">Settings</div>
+                <div class="settings-menu-row">
+                    <button class="theme-toggle-nav" id="theme-toggle" title="Toggle light/dark theme" type="button" aria-label="Toggle light/dark theme">
+                        <span class="theme-icon theme-sun" aria-hidden="true">Light</span>
+                        <span class="theme-icon theme-moon" aria-hidden="true">Dark</span>
+                        <span class="theme-toggle-pill"></span>
+                    </button>
+                </div>
+                <label class="settings-menu-row" for="dev-mode-toggle">
+                    <span class="settings-menu-label">Dev mode</span>
+                    <input id="dev-mode-toggle" type="checkbox">
                 </label>
             </div>
             <div class="header-panel header-dropdown-menu" id="view-menu" hidden>
@@ -112,30 +124,6 @@
                                     <span class="fa-solid fa-eye" aria-hidden="true"></span>
                                 </button>
                             </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="header-panel-section">
-                    <div class="header-panel-title">Targets Pane</div>
-                    <div class="pane-view-menu">
-                        <div class="pane-view-row">
-                            <button type="button" class="pane-view-toggle" data-pane-view-toggle data-pane-view-side="target" data-pane-view-mode="thumbs" aria-pressed="false">
-                                <span class="pane-view-option pane-view-thumbs">Thumbs</span>
-                                <span class="pane-view-pill"></span>
-                                <span class="pane-view-option pane-view-preview">Preview</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <div class="header-panel-section">
-                    <div class="header-panel-title">Refs Pane</div>
-                    <div class="pane-view-menu">
-                        <div class="pane-view-row">
-                            <button type="button" class="pane-view-toggle" data-pane-view-toggle data-pane-view-side="reference" data-pane-view-mode="thumbs" aria-pressed="false">
-                                <span class="pane-view-option pane-view-thumbs">Thumbs</span>
-                                <span class="pane-view-pill"></span>
-                                <span class="pane-view-option pane-view-preview">Preview</span>
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -230,8 +218,17 @@
             <script type="application/json" data-pane-model-json>{{.page.TargetPaneModelJSON}}</script>
             <div class="pane-header">
                 <h2>
-                    <span data-pane-title-default>Targets</span>
-                    <span data-pane-title-preview hidden>Preview</span>
+                    <span class="pane-title-picker">
+                        <button type="button" class="pane-title-toggle" data-pane-title-toggle data-pane-title-side="target" aria-expanded="false">
+                            <span data-pane-title-default>Targets</span>
+                            <span data-pane-title-preview hidden>Preview</span>
+                            <span class="pane-title-caret" aria-hidden="true"></span>
+                        </button>
+                        <span class="pane-title-menu" data-pane-title-menu hidden>
+                            <button type="button" data-pane-title-mode="thumbs" data-pane-title-side="target" hidden>Targets</button>
+                            <button type="button" data-pane-title-mode="preview" data-pane-title-side="target">Preview</button>
+                        </span>
+                    </span>
                     {{if .page.TargetDirSegments}}
                     <span class="pane-directory-path" data-pane-title-path title="{{.page.TargetDirPath}}">
                         {{range $idx, $segment := .page.TargetDirSegments}}
@@ -475,8 +472,17 @@
             <script type="application/json" data-pane-model-json>{{.page.ReferencePaneModelJSON}}</script>
             <div class="pane-header">
                 <h2>
-                    <span data-pane-title-default>References</span>
-                    <span data-pane-title-preview hidden>Preview</span>
+                    <span class="pane-title-picker">
+                        <button type="button" class="pane-title-toggle" data-pane-title-toggle data-pane-title-side="reference" aria-expanded="false">
+                            <span data-pane-title-default>References</span>
+                            <span data-pane-title-preview hidden>Preview</span>
+                            <span class="pane-title-caret" aria-hidden="true"></span>
+                        </button>
+                        <span class="pane-title-menu" data-pane-title-menu hidden>
+                            <button type="button" data-pane-title-mode="thumbs" data-pane-title-side="reference" hidden>References</button>
+                            <button type="button" data-pane-title-mode="preview" data-pane-title-side="reference">Preview</button>
+                        </span>
+                    </span>
                     {{if .page.ReferenceDirSegments}}
                     <span class="pane-directory-path" data-pane-title-path title="{{.page.ReferenceDirPath}}">
                         {{range $idx, $segment := .page.ReferenceDirSegments}}
@@ -716,6 +722,12 @@
             {{end}}
         </section>
     </main>
+
+    <aside class="dev-pane" id="dev-pane" aria-label="Development information" hidden>
+        <div class="dev-pane-title">Culling</div>
+        <div class="dev-pane-row"><span>Targets</span><code id="dev-target-count">0 / 0 / 0</code></div>
+        <div class="dev-pane-row"><span>References</span><code id="dev-reference-count">0 / 0 / 0</code></div>
+    </aside>
 
     <div class="exif-modal-backdrop" id="exif-modal" hidden>
         <div class="exif-modal" role="dialog" aria-modal="true" aria-labelledby="exif-modal-title">

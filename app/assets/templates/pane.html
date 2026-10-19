@@ -2,8 +2,17 @@
     <script type="application/json" data-pane-model-json>{{.pane.ModelJSON}}</script>
     <div class="pane-header">
         <h2>
-            <span data-pane-title-default>{{.pane.HeaderTitle}}</span>
-            <span data-pane-title-preview hidden>Preview</span>
+            <span class="pane-title-picker">
+                <button type="button" class="pane-title-toggle" data-pane-title-toggle data-pane-title-side="{{.pane.SectionSide}}" aria-expanded="false">
+                    <span data-pane-title-default>{{.pane.HeaderTitle}}</span>
+                    <span data-pane-title-preview hidden>Preview</span>
+                    <span class="pane-title-caret" aria-hidden="true"></span>
+                </button>
+                <span class="pane-title-menu" data-pane-title-menu hidden>
+                    <button type="button" data-pane-title-mode="thumbs" data-pane-title-side="{{.pane.SectionSide}}" hidden>{{.pane.HeaderTitle}}</button>
+                    <button type="button" data-pane-title-mode="preview" data-pane-title-side="{{.pane.SectionSide}}">Preview</button>
+                </span>
+            </span>
             {{if .pane.DirSegments}}
             <span class="pane-directory-path" data-pane-title-path title="{{.pane.DirPath}}">
                 {{range $idx, $segment := .pane.DirSegments}}
