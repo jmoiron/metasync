@@ -21,6 +21,17 @@ function parseExifTime(value) {
     return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6]), 0).getTime();
 }
 
+function localExifTimelineMs(value) {
+    if (!value || value === 'n/a') {
+        return NaN;
+    }
+    var m = String(value).match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+    if (!m) {
+        return NaN;
+    }
+    return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6]), 0);
+}
+
 function compareCardsByTimeThenOrder(aMs, bMs, aOrder, bOrder) {
     var aHas = Number.isFinite(aMs);
     var bHas = Number.isFinite(bMs);
@@ -41,11 +52,11 @@ function compareCardsByTimeThenOrder(aMs, bMs, aOrder, bOrder) {
 
 function keyForTime(mode, ms) {
     var d = new Date(ms);
-    var yyyy = d.getFullYear();
-    var mm = pad2(d.getMonth() + 1);
-    var dd = pad2(d.getDate());
+    var yyyy = d.getUTCFullYear();
+    var mm = pad2(d.getUTCMonth() + 1);
+    var dd = pad2(d.getUTCDate());
     if (mode === 'hour') {
-        return yyyy + '-' + mm + '-' + dd + ' ' + pad2(d.getHours());
+        return yyyy + '-' + mm + '-' + dd + ' ' + pad2(d.getUTCHours());
     }
     return yyyy + '-' + mm + '-' + dd;
 }
@@ -53,9 +64,9 @@ function keyForTime(mode, ms) {
 function groupSortTime(mode, ms) {
     var d = new Date(ms);
     if (mode === 'hour') {
-        d.setMinutes(0, 0, 0);
+        d.setUTCMinutes(0, 0, 0);
     } else {
-        d.setHours(0, 0, 0, 0);
+        d.setUTCHours(0, 0, 0, 0);
     }
     return d.getTime();
 }
@@ -68,14 +79,16 @@ function titleForGroup(mode, ms) {
             month: 'short',
             day: '2-digit',
             hour: '2-digit',
-            minute: '2-digit'
+            minute: '2-digit',
+            timeZone: 'UTC'
         });
     }
     return d.toLocaleDateString(undefined, {
         year: 'numeric',
         month: 'short',
         day: '2-digit',
-        weekday: 'short'
+        weekday: 'short',
+        timeZone: 'UTC'
     });
 }
 
@@ -85,12 +98,21 @@ function formatGroupDate(ms) {
         month: 'short',
         day: '2-digit',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
+        timeZone: 'UTC'
     });
 }
 
 function formatExif(d) {
     return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        keyForTime: keyForTime,
+        groupSortTime: groupSortTime,
+        localExifTimelineMs: localExifTimelineMs
+    };
 }
 
 function formatDelta(ms) {

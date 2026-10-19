@@ -22,7 +22,9 @@ $(function() {
     var geoLookupRequestSeq = 0;
     var displayTimelineMsCallCount = 0;
     var initialDisplayTimelineMsReported = false;
+    var timelineRailResizeRAF = 0;
     var targetSelectionAnchorID = '';
+    var referenceSelectionAnchorID = '';
     var metadataPanelState = {
         target: localStorage.getItem('metadata-panel-target') !== 'closed',
         reference: localStorage.getItem('metadata-panel-reference') !== 'closed'
@@ -86,6 +88,16 @@ $(function() {
     };
     bindTimelineScrollForPane(panes.target);
     bindTimelineScrollForPane(panes.reference);
+    window.addEventListener('resize', function() {
+        if (timelineRailResizeRAF) {
+            return;
+        }
+        timelineRailResizeRAF = window.requestAnimationFrame(function() {
+            timelineRailResizeRAF = 0;
+            refreshPaneTimelineRail(panes.target);
+            refreshPaneTimelineRail(panes.reference);
+        });
+    });
     renderGroupsWithOptionalSpinner([panes.target, panes.reference], function() {
         reportInitialDisplayTimelineMsUsage();
         refreshSyncUI();
@@ -317,6 +329,7 @@ $(function() {
         $workspace.on('change', '[data-timezone-select]', function() {
             var $pane = $(this).closest('.pane');
             var pane = $pane.is(panes.target.$pane) ? panes.target : panes.reference;
+            renderGroupsForPane(pane);
             var $selected = pane.side === 'target' ? activeTargetCard() : selectedCardForPane($pane);
             if ($selected.length > 0) {
                 updatePaneMetadataFromCard($pane, $selected);
@@ -341,6 +354,9 @@ $(function() {
     function initializeScopeControl() {
         var stored = localStorage.getItem('scope');
         var current = String($('#scope').val() || 'global');
+        if (stored === 'session') {
+            stored = 'group';
+        }
         setScopeValue(isValidScopeValue(stored) ? stored : current, false);
     }
 
@@ -356,7 +372,7 @@ $(function() {
     }
 
     function isValidScopeValue(value) {
-        return value === 'global' || value === 'session' || value === 'image';
+        return value === 'global' || value === 'group' || value === 'image';
     }
 
     function syncScopeUI() {
@@ -373,7 +389,7 @@ $(function() {
 
     function scopeIconClass(value) {
         switch (value) {
-        case 'session':
+        case 'group':
             return 'fa-regular fa-object-group';
         case 'image':
             return 'fa-solid fa-image';
@@ -420,18 +436,23 @@ $(function() {
         $workspace.on('click', '.photo-card', function(evt) {
             var $card = $(this);
             var $pane = $card.closest('.pane');
+            var pane = $pane.is(panes.target.$pane) ? panes.target : panes.reference;
+            var hasSelectionModifier = !!(evt.shiftKey || evt.ctrlKey || evt.metaKey);
+            var scope = String($('#scope').val() || 'global');
 
-            if ($pane.is(panes.target.$pane) && String($('#scope').val() || 'global') === 'image') {
-                updateTargetImageScopeSelection($card, evt);
+            if ($pane.is(panes.target.$pane) && hasSelectionModifier && scope === 'global') {
+                setScopeValue('image');
+            }
+
+            if (hasSelectionModifier || ($pane.is(panes.target.$pane) && scope === 'image')) {
+                updatePaneImageSelection(pane, $card, evt);
             } else {
                 $pane.find('.photo-card').removeClass('is-selected is-selection-anchor');
                 $card.addClass('is-selected');
-                if ($pane.is(panes.target.$pane)) {
-                    setTargetSelectionAnchor($card);
-                }
+                setPaneSelectionAnchor(pane, $card);
             }
             updatePaneMetadataFromCard($pane, $card);
-            if ($pane.is(panes.target.$pane) && String($('#scope').val() || 'global') === 'session') {
+            if ($pane.is(panes.target.$pane) && String($('#scope').val() || 'global') === 'group') {
                 renderGroupsForPane(panes.target);
             }
             syncSelectionOutlineState();
@@ -837,6 +858,8 @@ $(function() {
             $title.attr('data-collapsed', next ? '1' : '0');
             $title.attr('aria-expanded', next ? 'false' : 'true');
             $title.closest('.timeline-group').toggleClass('is-collapsed', next);
+            var $pane = $title.closest('.pane');
+            refreshPaneTimelineRail($pane.is(panes.reference.$pane) ? panes.reference : panes.target);
         });
         $workspace.on('click', '.timeline-group-jump', function(evt) {
             evt.preventDefault();
@@ -1144,8 +1167,8 @@ $(function() {
         var targetCards = targetCardsForScope(scope);
         var previewCount = 0;
 
-        if ((scope === 'image' || scope === 'session') && targetCards.length === 0) {
-            $('#sync-status').text('Select a target image for image/session GPS preview scope.');
+        if ((scope === 'image' || scope === 'group') && targetCards.length === 0) {
+            $('#sync-status').text('Select a target image for image/group GPS preview scope.');
             return false;
         }
 
@@ -1188,8 +1211,8 @@ $(function() {
     function setPreviewGPSForScope(lat, lon, source) {
         var scope = String($('#scope').val() || 'global');
         var targetCards = targetCardsForScope(scope);
-        if ((scope === 'image' || scope === 'session') && targetCards.length === 0) {
-            $('#sync-status').text('Select a target image for image/session GPS preview scope.');
+        if ((scope === 'image' || scope === 'group') && targetCards.length === 0) {
+            $('#sync-status').text('Select a target image for image/group GPS preview scope.');
             return false;
         }
         targetCards.forEach(function(info) {
@@ -1336,44 +1359,19 @@ $(function() {
             return selectedTargetInfos();
         }
 
+        var mode = String($('#grouping-mode').val() || 'session');
         var sessionMin = Math.max(1, Number($('#session-minutes').val()) || 5);
-        var threshold = sessionMin * 60 * 1000;
-        var sessions = buildTargetSessions(threshold);
-        for (var i = 0; i < sessions.length; i += 1) {
-            var session = sessions[i];
-            var found = session.some(function(info) {
+        var groups = buildGroups(panes.target, panes.target.cards, mode, sessionMin);
+        for (var i = 0; i < groups.length; i += 1) {
+            var group = groups[i];
+            var found = group.cards.some(function(info) {
                 return info.id === selectedID;
             });
             if (found) {
-                return session;
+                return group.cards;
             }
         }
         return [selectedInfo];
-    }
-
-    function buildTargetSessions(thresholdMs) {
-        var withTime = panes.target.cards
-            .slice()
-            .filter(function(info) {
-                return Number.isFinite(currentTargetMs(info));
-            })
-            .sort(function(a, b) {
-                return currentTargetMs(a) - currentTargetMs(b);
-            });
-
-        var sessions = [];
-        var current = null;
-        withTime.forEach(function(info) {
-            var ms = currentTargetMs(info);
-            if (!current || ms-current.lastMs > thresholdMs) {
-                current = [];
-                current.lastMs = ms;
-                sessions.push(current);
-            }
-            current.push(info);
-            current.lastMs = ms;
-        });
-        return sessions;
     }
 
     function surroundingReferences(targetMs) {
@@ -1574,7 +1572,7 @@ $(function() {
         var mode = String($('#grouping-mode').val() || 'session');
         var scope = String($('#scope').val() || 'global');
         var selectedTargetID = '';
-        if (scope === 'session' && pane.side === 'target') {
+        if (scope === 'group' && pane.side === 'target') {
             var $selectedTarget = activeTargetCard();
             if ($selectedTarget.length > 0) {
                 selectedTargetID = String($selectedTarget.data('photoId') || '');
@@ -1596,7 +1594,7 @@ $(function() {
         var mode = String($('#grouping-mode').val() || 'session');
         var scope = String($('#scope').val() || 'global');
         var selectedTargetID = '';
-        if (scope === 'session' && pane.side === 'target') {
+        if (scope === 'group' && pane.side === 'target') {
             var $selectedTarget = activeTargetCard();
             if ($selectedTarget.length > 0) {
                 selectedTargetID = String($selectedTarget.data('photoId') || '');
@@ -1635,12 +1633,12 @@ $(function() {
                 $grid.append(info.$el);
             });
 
-            if (pane.side === 'target' && mode === 'session' && scope === 'session' && selectedTargetID !== '') {
-                var isSelectedSession = group.cards.some(function(info) {
+            if (pane.side === 'target' && scope === 'group' && selectedTargetID !== '') {
+                var isSelectedGroup = group.cards.some(function(info) {
                     return info.id === selectedTargetID;
                 });
-                $group.toggleClass('scope-selected', isSelectedSession);
-                $group.toggleClass('scope-unselected', !isSelectedSession);
+                $group.toggleClass('scope-selected', isSelectedGroup);
+                $group.toggleClass('scope-unselected', !isSelectedGroup);
             }
 
             $group.toggleClass('is-collapsed', collapsed);
@@ -1660,31 +1658,59 @@ $(function() {
         if (!pane) {
             return;
         }
+        ensureTimelineRailTailSpace(pane);
         pane.virtual.groups = groups || [];
         pane.virtual.mode = String(mode || 'session');
-        pane.virtual.sortedTimeline = buildSortedTimelineCards(pane);
+        pane.virtual.sortedTimeline = buildSortedTimelineCards(pane, groups);
+        captureTimelineCardPositions(pane, pane.virtual.sortedTimeline);
         pane.virtual.rail = buildTimelineRailModel(pane.virtual.sortedTimeline);
         renderTimelineRail(pane);
         scheduleTimelineRailTick(pane);
     }
 
-    function buildSortedTimelineCards(pane) {
-        return pane.cards
-            .map(function(info) {
-                return {
-                    id: info.id,
-                    ms: displayTimelineMsForPane(pane, info.$el)
-                };
-            })
-            .filter(function(item) {
-                return Number.isFinite(item.ms) && item.id;
-            })
-            .sort(function(a, b) {
-                if (a.ms === b.ms) {
-                    return String(a.id).localeCompare(String(b.id));
+    function buildSortedTimelineCards(pane, groups) {
+        var ordered = [];
+        (groups || []).forEach(function(group) {
+            (group.cards || []).forEach(function(info) {
+                var ms = displayTimelineMsForPane(pane, info.$el);
+                if (Number.isFinite(ms) && info.id) {
+                    ordered.push({ id: info.id, ms: ms, info: info, scrollY: 0 });
                 }
-                return a.ms - b.ms;
             });
+        });
+        return ordered;
+    }
+
+    function captureTimelineCardPositions(pane, ordered) {
+        var timeline = pane.$timeline && pane.$timeline.get(0);
+        if (!timeline) {
+            return;
+        }
+        var timelineRect = timeline.getBoundingClientRect();
+        ordered.forEach(function(item) {
+            var el = item.info && item.info.$el ? item.info.$el.get(0) : null;
+            if (!el) {
+                return;
+            }
+            var group = el.closest('.timeline-group');
+            if (group && group.classList.contains('is-collapsed')) {
+                el = group.querySelector('.timeline-group-header') || group;
+            }
+            var rect = el.getBoundingClientRect();
+            item.scrollY = Math.max(0, rect.top - timelineRect.top + timeline.scrollTop);
+        });
+    }
+
+    function refreshPaneTimelineRail(pane) {
+        if (!pane || !pane.virtual || !pane.virtual.groups) {
+            return;
+        }
+        ensureTimelineRailTailSpace(pane);
+        pane.virtual.sortedTimeline = buildSortedTimelineCards(pane, pane.virtual.groups);
+        captureTimelineCardPositions(pane, pane.virtual.sortedTimeline);
+        pane.virtual.rail = buildTimelineRailModel(pane.virtual.sortedTimeline);
+        renderTimelineRail(pane);
+        updateTimelineRailCurrentMarker(pane);
     }
 
     function buildTimelineRailModel(sortedTimeline) {
@@ -1726,10 +1752,12 @@ $(function() {
             var majorKey = markerBucketKey(item.ms, majorUnit);
             if (!seenMajor[majorKey]) {
                 seenMajor[majorKey] = true;
+                var markerItem = item;
                 majorMarkers.push({
                     kind: 'major',
-                    id: item.id,
+                    id: markerItem.id,
                     ms: item.ms,
+                    scrollY: item.scrollY,
                     label: markerLabel(item.ms, majorUnit)
                 });
             }
@@ -1740,6 +1768,7 @@ $(function() {
                     kind: 'minor',
                     id: item.id,
                     ms: item.ms,
+                    scrollY: item.scrollY,
                     label: ''
                 });
             }
@@ -1817,17 +1846,19 @@ $(function() {
             pane.$rail.prop('hidden', true);
             return;
         }
-        var span = Math.max(1, rail.maxMs - rail.minMs);
+        var timeline = pane.$timeline.get(0);
+        var scrollable = timeline ? Math.max(1, timeline.scrollHeight - timeline.clientHeight) : 1;
         var $container = pane.$rail.find('[data-rail-markers]').first();
         $container.empty();
         rail.markers.forEach(function(marker) {
-            var ratio = (marker.ms - rail.minMs) / span;
-            var top = Math.max(0, Math.min(1, ratio));
+            var targetScrollY = Math.max(0, marker.scrollY - timelineRailAnchor(timeline));
+            var top = Math.max(0, Math.min(1, targetScrollY / scrollable));
             var $marker = $('<button type="button" class="timeline-rail-marker"></button>');
             $marker.toggleClass('is-major', marker.kind === 'major');
             $marker.toggleClass('is-minor', marker.kind !== 'major');
             $marker.css('top', (top * 100) + '%');
             $marker.attr('data-target-id', marker.id);
+            $marker.attr('data-scroll-y', String(marker.scrollY));
             if (marker.kind === 'major') {
                 $marker.append($('<span class="timeline-rail-marker-label"></span>').text(marker.label));
             }
@@ -1853,7 +1884,19 @@ $(function() {
         }
         var scrollable = Math.max(1, timelineEl.scrollHeight - timelineEl.clientHeight);
         var ratio = Math.max(0, Math.min(1, timelineEl.scrollTop / scrollable));
-        var ms = rail.minMs + ((rail.maxMs - rail.minMs) * ratio);
+        var targetY = timelineEl.scrollTop + timelineRailAnchor(timelineEl);
+        var lo = 0;
+        var hi = pane.virtual.sortedTimeline.length;
+        while (lo < hi) {
+            var mid = (lo + hi) >> 1;
+            if (pane.virtual.sortedTimeline[mid].scrollY < targetY) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        var currentItem = pane.virtual.sortedTimeline[Math.min(lo, pane.virtual.sortedTimeline.length - 1)];
+        var ms = currentItem ? currentItem.ms : rail.minMs;
         var $current = pane.$rail.find('[data-rail-current]').first();
         $current.css('top', (ratio * 100) + '%');
         pane.$rail.find('[data-rail-current-label]').first().text(markerLabel(ms, rail.majorUnit));
@@ -1869,9 +1912,28 @@ $(function() {
         if (!cardEl || !timelineEl) {
             return;
         }
-        var top = Math.max(0, cardEl.offsetTop - Math.round(timelineEl.clientHeight * 0.35));
+        var marker = pane.virtual.rail && pane.virtual.rail.markers.find(function(item) {
+            return item.id === id;
+        });
+        var cardRect = cardEl.getBoundingClientRect();
+        var timelineRect = timelineEl.getBoundingClientRect();
+        var contentY = marker ? marker.scrollY : cardRect.top - timelineRect.top + timelineEl.scrollTop;
+        var top = Math.max(0, contentY - timelineRailAnchor(timelineEl));
         timelineEl.scrollTop = top;
         scheduleTimelineRailTick(pane);
+    }
+
+    function timelineRailAnchor(timeline) {
+        return timeline ? Math.round(timeline.clientHeight * 0.35) : 0;
+    }
+
+    function ensureTimelineRailTailSpace(pane) {
+        var timeline = pane && pane.$timeline ? pane.$timeline.get(0) : null;
+        if (!timeline) {
+            return;
+        }
+        // Keep the final date marker alignable with the same viewport anchor as every other marker.
+        timeline.style.setProperty('--timeline-rail-tail', Math.ceil(timeline.clientHeight * 0.65) + 'px');
     }
 
     function buildGroups(pane, cards, mode, sessionMin) {
@@ -2721,20 +2783,40 @@ $(function() {
         syncPaneViews();
     }
 
-    function updateTargetImageScopeSelection($card, evt) {
-        var $pane = panes.target.$pane;
+    function paneSelectionAnchorID(pane) {
+        return pane.side === 'target' ? targetSelectionAnchorID : referenceSelectionAnchorID;
+    }
+
+    function setPaneSelectionAnchor(pane, $card) {
+        if (pane.side === 'target') {
+            setTargetSelectionAnchor($card);
+            return;
+        }
+        if (!$card || $card.length === 0) {
+            referenceSelectionAnchorID = '';
+            pane.$pane.find('.photo-card').removeClass('is-selection-anchor');
+            return;
+        }
+        referenceSelectionAnchorID = String($card.data('photoId') || '');
+        pane.$pane.find('.photo-card').removeClass('is-selection-anchor');
+        $card.addClass('is-selection-anchor');
+    }
+
+    function updatePaneImageSelection(pane, $card, evt) {
+        var $pane = pane.$pane;
         var clickedID = String($card.data('photoId') || '');
         var useRange = !!(evt && evt.shiftKey);
         var useAdd = !!(evt && (evt.ctrlKey || evt.metaKey));
 
         if (useRange) {
-            var clickedInfo = cardInfoByID(panes.target, clickedID);
+            var clickedInfo = cardInfoByID(pane, clickedID);
             var anchorInfo = null;
             if (!clickedInfo) {
                 return;
             }
-            if (targetSelectionAnchorID) {
-                anchorInfo = cardInfoByID(panes.target, targetSelectionAnchorID);
+            var anchorID = paneSelectionAnchorID(pane);
+            if (anchorID) {
+                anchorInfo = cardInfoByID(pane, anchorID);
             }
 
             if (!useAdd) {
@@ -2742,30 +2824,36 @@ $(function() {
             }
             if (!anchorInfo) {
                 $card.addClass('is-selected');
-                setTargetSelectionAnchor($card);
+                setPaneSelectionAnchor(pane, $card);
                 return;
             }
 
             var start = Math.min(anchorInfo.index, clickedInfo.index);
             var end = Math.max(anchorInfo.index, clickedInfo.index);
-            panes.target.cards.forEach(function(info) {
+            pane.cards.forEach(function(info) {
                 if (info.index >= start && info.index <= end) {
                     info.$el.addClass('is-selected');
                 }
             });
-            setTargetSelectionAnchor($card);
+            anchorInfo.$el.addClass('is-selection-anchor');
             return;
         }
 
         if (useAdd) {
-            $card.addClass('is-selected');
-            setTargetSelectionAnchor($card);
+            var wasSelected = $card.hasClass('is-selected');
+            $card.toggleClass('is-selected', !wasSelected);
+            if (!paneSelectionAnchorID(pane)) {
+                setPaneSelectionAnchor(pane, $card);
+            } else if (wasSelected && paneSelectionAnchorID(pane) === clickedID) {
+                var $replacementAnchor = $pane.find('.photo-card.is-selected').first();
+                setPaneSelectionAnchor(pane, $replacementAnchor);
+            }
             return;
         }
 
         $pane.find('.photo-card').removeClass('is-selected is-selection-anchor');
         $card.addClass('is-selected');
-        setTargetSelectionAnchor($card);
+        setPaneSelectionAnchor(pane, $card);
     }
 
     function cardInfoByID(pane, id) {
@@ -2814,7 +2902,7 @@ $(function() {
 
     function displayTimelineMsForPane(pane, $card) {
         displayTimelineMsCallCount += 1;
-        var localMs = currentCardExifMs($card);
+        var localMs = localExifTimelineMs($card.attr('data-exif-time'));
         var view = String(pane.view || 'local');
         if (view === 'local') {
             return localMs;
@@ -2835,7 +2923,7 @@ $(function() {
 
     function displayTimelineMsForInfoModel(pane, info) {
         var model = info && info.model ? info.model : null;
-        var localMs = currentExifMsForInfoModel(info);
+        var localMs = localExifTimelineMs(model && model.exif_time);
         var view = String(pane.view || 'local');
         if (view === 'local') {
             return localMs;
@@ -3037,8 +3125,8 @@ $(function() {
     function applyTimezoneFix() {
         var scope = String($('#scope').val() || 'global');
         var targetCards = targetCardsForScope(scope);
-        if ((scope === 'image' || scope === 'session') && targetCards.length === 0) {
-            $('#sync-status').text('Select a target image for image/session time scope.');
+        if ((scope === 'image' || scope === 'group') && targetCards.length === 0) {
+            $('#sync-status').text('Select a target image for image/group time scope.');
             return;
         }
 
@@ -3184,8 +3272,8 @@ $(function() {
     function setGPSTimeFromLocalTime() {
         var scope = String($('#scope').val() || 'global');
         var targetCards = targetCardsForScope(scope);
-        if ((scope === 'image' || scope === 'session') && targetCards.length === 0) {
-            $('#sync-status').text('Select a target image for image/session time scope.');
+        if ((scope === 'image' || scope === 'group') && targetCards.length === 0) {
+            $('#sync-status').text('Select a target image for image/group time scope.');
             return;
         }
 
