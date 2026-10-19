@@ -20,6 +20,7 @@ $(function() {
     };
     var applyTaskState = null;
     var geoLookupRequestSeq = 0;
+    var gpsCoordinateClipboard = null;
     var displayTimelineMsCallCount = 0;
     var initialDisplayTimelineMsReported = false;
     var timelineRailResizeRAF = 0;
@@ -819,6 +820,27 @@ $(function() {
         $workspace.on('click', '[data-action="expand-map"]', function(evt) {
             evt.preventDefault();
             openGeoLookupModal($(this).closest('.pane'));
+        });
+        $workspace.on('click', '[data-action="copy-map-coordinates"]', function() {
+            var $pane = $(this).closest('.pane');
+            var pane = $pane.is(panes.reference.$pane) ? panes.reference : panes.target;
+            var $card = pane.side === 'target' ? activeTargetCard() : selectedCardForPane($pane);
+            var lat = parseFloat($card.attr('data-gps-lat'));
+            var lon = parseFloat($card.attr('data-gps-lon'));
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+                return;
+            }
+            gpsCoordinateClipboard = { lat: lat, lon: lon };
+            syncMapCoordinateControls();
+            $('#sync-status').text('Copied GPS coordinates: ' + lat + ', ' + lon + '.');
+        });
+        $workspace.on('click', '[data-action="paste-map-coordinates"]', function() {
+            if (!gpsCoordinateClipboard) {
+                return;
+            }
+            if (setPreviewGPSForScope(gpsCoordinateClipboard.lat, gpsCoordinateClipboard.lon, 'clipboard')) {
+                syncPaneMap(panes.target.$pane);
+            }
         });
 
         $(document).on('click', '[data-action="show-set-gps-time-info"]', function(evt) {
@@ -2741,6 +2763,7 @@ $(function() {
             return;
         }
         var $panel = $pane.find('.metadata-panel').first();
+        $panel.attr('data-metadata-mode', mode);
         $panel.find('.metadata-toggle-btn').removeClass('is-active');
         $panel.find('.metadata-toggle-btn[data-mode="' + mode + '"]').addClass('is-active');
         $panel.find('.metadata-secondary-panel').removeClass('is-active');
@@ -2768,6 +2791,7 @@ $(function() {
 
     function syncPaneMap($pane) {
         var mapState = ensurePaneMap($pane);
+        syncMapCoordinateControls();
         if (!mapState) {
             return;
         }
@@ -2786,6 +2810,18 @@ $(function() {
             }
             updatePaneMap(mapState, defaultMapView, defaultMapZoom);
         }
+    }
+
+    function syncMapCoordinateControls() {
+        $('[data-action="copy-map-coordinates"]').each(function() {
+            var $pane = $(this).closest('.pane');
+            var pane = $pane.is(panes.reference.$pane) ? panes.reference : panes.target;
+            var $card = pane.side === 'target' ? activeTargetCard() : selectedCardForPane($pane);
+            var lat = parseFloat($card.attr('data-gps-lat'));
+            var lon = parseFloat($card.attr('data-gps-lon'));
+            $(this).prop('disabled', !Number.isFinite(lat) || !Number.isFinite(lon));
+        });
+        $('[data-action="paste-map-coordinates"]').prop('disabled', !gpsCoordinateClipboard);
     }
 
     function ensurePaneMap($pane) {

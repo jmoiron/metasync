@@ -69,7 +69,7 @@
             </div>
         </div>
     </div>
-    <div class="metadata-panel">
+    <div class="metadata-panel" data-metadata-mode="exif">
         <button type="button" class="metadata-panel-handle" data-action="toggle-metadata-panel" aria-expanded="true" aria-label="Collapse metadata panel">
             <span class="metadata-panel-grip" aria-hidden="true"></span>
         </button>
@@ -93,6 +93,10 @@
                             <tr><th>EXIF GPS</th><td data-field="exif-gps">n/a</td></tr>
                         </tbody>
                     </table>
+                <div class="gps-coordinate-actions">
+                    <button type="button" class="sync-btn secondary" data-action="copy-map-coordinates" disabled>Copy</button>
+                    <button type="button" class="sync-btn secondary" data-action="paste-map-coordinates" disabled>Paste</button>
+                </div>
                 </div>
                 <div class="metadata-column metadata-secondary">
                     <div class="metadata-secondary-panel is-active" data-panel="exif">

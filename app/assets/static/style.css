@@ -1768,6 +1768,18 @@ a:hover {
   min-width: 0;
   min-height: 0;
 }
+.gps-coordinate-actions {
+  display: none;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+.metadata-panel[data-metadata-mode="map"] .gps-coordinate-actions {
+  display: flex;
+}
+.gps-coordinate-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 .metadata-toggle {
   display: inline-flex;
   gap: 0.35rem;
