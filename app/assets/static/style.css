@@ -1460,8 +1460,33 @@ a:hover {
   background: var(--bg);
   border-radius: 4px;
   font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   white-space: nowrap;
   padding: 0.08rem 0.28rem;
+}
+.timeline-dev-current-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 8;
+  border-top: 2px dashed var(--orange);
+  pointer-events: none;
+}
+.timeline-dev-current-line span {
+  position: absolute;
+  top: 0.2rem;
+  left: 0.35rem;
+  max-width: calc(100% - 0.7rem);
+  overflow: hidden;
+  padding: 0.12rem 0.35rem;
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pane-build-spinner {
   position: absolute;
@@ -1606,6 +1631,11 @@ a:hover {
   width: 100%;
   user-select: none;
   z-index: 1;
+}
+.photo-card.is-rail-current-source {
+  outline: 3px dashed var(--orange);
+  outline-offset: 2px;
+  z-index: 3;
 }
 .photo-card.ref-before-highlight {
   box-shadow: inset 0 0 0 3px color-mix(in srgb, #2f80ed 85%, transparent 15%);

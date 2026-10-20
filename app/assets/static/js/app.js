@@ -155,6 +155,9 @@ $(function() {
                 mountedRange: null,
                 mountedCardCount: 0,
                 mountedGroups: [],
+                currentTimeSourceItem: null,
+                currentTimeSourceEl: null,
+                $currentTimeDebugLine: $(),
                 rail: null,
                 mode: 'session'
             },
@@ -741,20 +744,41 @@ $(function() {
         }
         pane.railTickRAF = window.requestAnimationFrame(function() {
             pane.railTickRAF = 0;
-            updateTimelineVirtualWindow(pane);
+            if (updateTimelineVirtualWindow(pane)) {
+                refreshMountedTimelineRailPositions(pane);
+            }
+            applyPendingRailScroll(pane);
             updateTimelineRailCurrentMarker(pane);
             updateDevPane();
         });
     }
 
+    function applyPendingRailScroll(pane) {
+        var id = pane && pane.virtual ? pane.virtual.pendingRailScrollID : '';
+        if (!id || !pane.$timeline || pane.$timeline.length === 0) {
+            return;
+        }
+        pane.virtual.pendingRailScrollID = '';
+        var marker = pane.virtual.rail && pane.virtual.rail.markers.find(function(item) {
+            return item.id === id;
+        });
+        var timeline = pane.$timeline.get(0);
+        if (!marker || !timeline) {
+            return;
+        }
+        var top = Math.max(0, marker.scrollY - timelineRailAnchor(timeline));
+        timeline.scrollTop = top;
+    }
+
     function updateDevPane() {
         var enabled = localStorage.getItem('dev-mode') === 'true';
         $('#dev-pane').prop('hidden', !enabled);
-        if (!enabled) {
-            return;
+        if (enabled) {
+            $('#dev-target-count').text(formatMountedCardCount(panes.target));
+            $('#dev-reference-count').text(formatMountedCardCount(panes.reference));
         }
-        $('#dev-target-count').text(formatMountedCardCount(panes.target));
-        $('#dev-reference-count').text(formatMountedCardCount(panes.reference));
+        syncTimelineCurrentDebug(panes.target, panes.target.virtual.currentTimeSourceItem, enabled);
+        syncTimelineCurrentDebug(panes.reference, panes.reference.virtual.currentTimeSourceItem, enabled);
     }
 
     function formatMountedCardCount(pane) {
@@ -1767,6 +1791,7 @@ $(function() {
         if (bestCard) {
             return {
                 id: String(bestCard.getAttribute('data-photo-id') || ''),
+                element: bestCard,
                 offset: bestCard.getBoundingClientRect().top - timelineRect.top,
                 scrollTop: timeline.scrollTop
             };
@@ -1784,6 +1809,7 @@ $(function() {
         if (nearest) {
             return {
                 id: nearest.item.id,
+                element: nearest.item.info && nearest.item.info.$el ? nearest.item.info.$el.get(0) : null,
                 offset: nearest.item.scrollY - timeline.scrollTop,
                 scrollTop: timeline.scrollTop
             };
@@ -1892,6 +1918,7 @@ $(function() {
             timeline.scrollTop = scrollAnchor.scrollTop;
         }
         pane.virtual.rail = buildTimelineRailModel(pane.virtual.sortedTimeline);
+        ensureTimelineRailTailForMarkers(pane);
         renderTimelineRail(pane);
         updateTimelineRailCurrentMarker(pane);
         scheduleTimelineRailTick(pane);
@@ -1900,10 +1927,13 @@ $(function() {
     function buildSortedTimelineCards(pane, groups) {
         var ordered = [];
         (groups || []).forEach(function(group) {
+            group.timelineItems = [];
             (group.cards || []).forEach(function(info) {
                 var ms = displayTimelineMsForPane(pane, info.$el);
                 if (Number.isFinite(ms) && info.id && info.isVisible !== false) {
-                    ordered.push({ id: info.id, ms: ms, info: info, scrollY: 0 });
+                    var item = { id: info.id, ms: ms, info: info, scrollY: 0 };
+                    ordered.push(item);
+                    group.timelineItems.push(item);
                 }
             });
         });
@@ -1962,6 +1992,7 @@ $(function() {
         pane.virtual.sortedTimeline = buildSortedTimelineCards(pane, pane.virtual.groups);
         captureTimelineCardPositions(pane, pane.virtual.sortedTimeline);
         pane.virtual.rail = buildTimelineRailModel(pane.virtual.sortedTimeline);
+        ensureTimelineRailTailForMarkers(pane);
         renderTimelineRail(pane);
         updateTimelineRailCurrentMarker(pane);
     }
@@ -2017,7 +2048,12 @@ $(function() {
             });
         });
         updates.forEach(function(update) {
-            update.grid.style.minHeight = update.gridHeight + 'px';
+            var metrics = update.metrics;
+            update.grid.style.height = update.gridHeight + 'px';
+            update.grid.style.minHeight = '0';
+            update.grid.style.gridTemplateRows = metrics.visibleCount > 0
+                ? 'repeat(' + Math.ceil(metrics.visibleCount / metrics.columns) + ', ' + metrics.cellHeight + 'px)'
+                : 'none';
             update.group.virtualMetrics = update.metrics;
         });
     }
@@ -2061,8 +2097,7 @@ $(function() {
                     cardHi = cardMid;
                 }
             }
-            var firstCard = visibleCards[cardLo];
-            if (!firstCard || firstCard.timelineIndex > range.end) {
+            if (!visibleCards[cardLo] || visibleCards[cardLo].timelineIndex > range.end) {
                 continue;
             }
             var lastIndex = cardLo;
@@ -2070,20 +2105,13 @@ $(function() {
                 lastIndex += 1;
             }
             var metrics = group.virtualMetrics;
-            var firstRowIndex = Math.floor(firstCard.virtualVisibleIndex / metrics.columns) * metrics.columns;
-            var lastRowIndex = Math.min(
-                metrics.visibleCount - 1,
-                (Math.floor(visibleCards[lastIndex].virtualVisibleIndex / metrics.columns) + 1) * metrics.columns - 1
-            );
             var grid = group.$grid;
-            if (firstRowIndex > 0) {
-                var spacer = document.createElement('div');
-                spacer.className = 'timeline-virtual-spacer';
-                spacer.style.height = Math.max(0, firstRowIndex * (metrics.cellHeight + metrics.rowGap) - metrics.rowGap) + 'px';
-                grid.append(spacer);
-            }
-            for (var visibleIndex = firstRowIndex; visibleIndex <= lastRowIndex; visibleIndex += 1) {
-                grid.append(visibleCards[visibleIndex].$el);
+            for (var visibleIndex = cardLo; visibleIndex <= lastIndex; visibleIndex += 1) {
+                var info = visibleCards[visibleIndex];
+                var cardEl = info.$el.get(0);
+                cardEl.style.gridRow = String(Math.floor(info.virtualVisibleIndex / metrics.columns) + 1);
+                cardEl.style.gridColumn = String((info.virtualVisibleIndex % metrics.columns) + 1);
+                grid.append(cardEl);
                 mounted += 1;
             }
             pane.virtual.mountedGroups.push(group);
@@ -2094,18 +2122,57 @@ $(function() {
 
     function updateTimelineVirtualWindow(pane, force) {
         if (!pane || !pane.virtual || pane.virtual.groups.length === 0) {
-            return;
+            return false;
         }
         var center = timelineCenterIndex(pane);
         var current = pane.virtual.mountedRange;
         if (!force && current && center >= current.start + 50 && center <= current.end - 50) {
-            return;
+            return false;
         }
         var nextRange = timelineWindow(pane, pane.cards.length, center);
         if (!force && current && current.start === nextRange.start && current.end === nextRange.end) {
+            return false;
+        }
+        var scrollAnchor = captureTimelineScrollAnchor(pane);
+        mountTimelineWindow(pane, nextRange);
+        var timeline = pane.$timeline.get(0);
+        var anchorEl = scrollAnchor ? scrollAnchor.element : null;
+        if (timeline && anchorEl && anchorEl.isConnected) {
+            var timelineTop = timeline.getBoundingClientRect().top;
+            timeline.scrollTop += anchorEl.getBoundingClientRect().top - timelineTop - scrollAnchor.offset;
+        }
+        return true;
+    }
+
+    function refreshMountedTimelineRailPositions(pane) {
+        if (!pane || !pane.virtual || !pane.virtual.sortedTimeline || !pane.virtual.rail) {
             return;
         }
-        mountTimelineWindow(pane, nextRange);
+        captureTimelineCardPositions(pane, pane.virtual.sortedTimeline);
+        var scrollYByID = new Map();
+        pane.virtual.sortedTimeline.forEach(function(item) {
+            scrollYByID.set(item.id, item.scrollY);
+        });
+        pane.virtual.rail.markers.forEach(function(marker) {
+            var scrollY = scrollYByID.get(marker.id);
+            if (Number.isFinite(scrollY)) {
+                marker.scrollY = scrollY;
+            }
+        });
+
+        var timeline = pane.$timeline.get(0);
+        var scrollable = timeline ? Math.max(1, timeline.scrollHeight - timeline.clientHeight) : 1;
+        var anchor = timelineRailAnchor(timeline);
+        pane.$rail.find('.timeline-rail-marker').each(function() {
+            var $marker = $(this);
+            var scrollY = scrollYByID.get(String($marker.attr('data-target-id') || ''));
+            if (!Number.isFinite(scrollY)) {
+                return;
+            }
+            $marker.attr('data-scroll-y', String(scrollY));
+            var top = Math.max(0, Math.min(1, (scrollY - anchor) / scrollable));
+            $marker.css('top', (top * 100) + '%');
+        });
     }
 
     function timelineCenterIndex(pane) {
@@ -2316,22 +2383,111 @@ $(function() {
         }
         var scrollable = Math.max(1, timelineEl.scrollHeight - timelineEl.clientHeight);
         var ratio = Math.max(0, Math.min(1, timelineEl.scrollTop / scrollable));
-        var targetY = timelineEl.scrollTop;
+        var targetY = timelineEl.scrollTop + timelineRailAnchor(timelineEl);
+        var currentItem = timelineItemAtAnchor(pane, targetY);
+        var ms = currentItem ? currentItem.ms : rail.minMs;
+        pane.virtual.currentTimeSourceItem = currentItem || null;
+        var $current = pane.$rail.find('[data-rail-current]').first();
+        $current.css('top', (ratio * 100) + '%');
+        pane.$rail.find('[data-rail-current-label]').first().text(markerLabel(ms, rail.majorUnit));
+        syncTimelineCurrentDebug(pane, currentItem, localStorage.getItem('dev-mode') === 'true');
+    }
+
+    function timelineItemAtAnchor(pane, targetY) {
+        var groups = pane.virtual.groups || [];
         var lo = 0;
-        var hi = pane.virtual.sortedTimeline.length;
+        var hi = groups.length;
         while (lo < hi) {
             var mid = (lo + hi) >> 1;
-            if (pane.virtual.sortedTimeline[mid].scrollY <= targetY) {
+            if (groups[mid].virtualY <= targetY) {
                 lo = mid + 1;
             } else {
                 hi = mid;
             }
         }
-        var currentItem = pane.virtual.sortedTimeline[Math.max(0, lo - 1)];
-        var ms = currentItem ? currentItem.ms : rail.minMs;
-        var $current = pane.$rail.find('[data-rail-current]').first();
-        $current.css('top', (ratio * 100) + '%');
-        pane.$rail.find('[data-rail-current-label]').first().text(markerLabel(ms, rail.majorUnit));
+        var groupIndex = Math.max(0, lo - 1);
+        var group = groups[groupIndex];
+        while (group && (!group.timelineItems || group.timelineItems.length === 0) && groupIndex > 0) {
+            group = groups[--groupIndex];
+        }
+        if (!group || !group.timelineItems || group.timelineItems.length === 0) {
+            for (var nextIndex = groupIndex + 1; nextIndex < groups.length; nextIndex += 1) {
+                if (groups[nextIndex].timelineItems && groups[nextIndex].timelineItems.length > 0) {
+                    group = groups[nextIndex];
+                    break;
+                }
+            }
+        }
+        if (!group || !group.timelineItems || group.timelineItems.length === 0) {
+            return null;
+        }
+
+        var items = group.timelineItems;
+        lo = 0;
+        hi = items.length;
+        while (lo < hi) {
+            var itemMid = (lo + hi) >> 1;
+            if (items[itemMid].scrollY <= targetY) {
+                lo = itemMid + 1;
+            } else {
+                hi = itemMid;
+            }
+        }
+        var itemIndex = Math.max(0, lo - 1);
+        var currentItem = items[itemIndex];
+        while (itemIndex > 0 && items[itemIndex - 1].scrollY === currentItem.scrollY) {
+            currentItem = items[--itemIndex];
+        }
+        return currentItem;
+    }
+
+    function syncTimelineCurrentDebug(pane, item, enabled) {
+        if (!pane || !pane.$pane || pane.$pane.length === 0) {
+            return;
+        }
+        if (!pane.virtual.$currentTimeDebugLine || pane.virtual.$currentTimeDebugLine.length === 0) {
+            var $mediaView = pane.$pane.find('.pane-media-view').first();
+            if ($mediaView.length > 0) {
+                pane.virtual.$currentTimeDebugLine = $('<div class="timeline-dev-current-line" hidden><span>date anchor</span></div>');
+                $mediaView.append(pane.virtual.$currentTimeDebugLine);
+            }
+        }
+        var $line = pane.virtual.$currentTimeDebugLine;
+        if (!enabled || !item || !pane.$rail || pane.$rail.prop('hidden')) {
+            $line.prop('hidden', true);
+            if (pane.virtual.currentTimeSourceEl) {
+                $(pane.virtual.currentTimeSourceEl).removeClass('is-rail-current-source');
+                pane.virtual.currentTimeSourceEl = null;
+            }
+            return;
+        }
+        var timeline = pane.$timeline.get(0);
+        var mediaView = pane.$pane.find('.pane-media-view').first().get(0);
+        if (timeline && mediaView) {
+            var timelineRect = timeline.getBoundingClientRect();
+            var mediaViewRect = mediaView.getBoundingClientRect();
+            var lineTop = timelineRect.top - mediaViewRect.top + timelineRailAnchor(timeline);
+            $line.css('top', lineTop + 'px');
+        }
+
+        var sourceEl = item.info && item.info.$el ? item.info.$el.get(0) : null;
+        if (pane.virtual.currentTimeSourceEl !== sourceEl) {
+            if (pane.virtual.currentTimeSourceEl) {
+                $(pane.virtual.currentTimeSourceEl).removeClass('is-rail-current-source');
+            }
+            pane.virtual.currentTimeSourceEl = sourceEl;
+        }
+        if (sourceEl) {
+            var basename = String(item.info.baseName || $(sourceEl).attr('data-basename') || 'photo');
+            var localTime = String($(sourceEl).attr('data-exif-time') || 'unknown time');
+            $(sourceEl).addClass('is-rail-current-source');
+            $line.find('span').text('date anchor: ' + basename);
+            $line.attr('title', 'Timeline date source: ' + basename + ' (' + localTime + ')');
+        } else {
+            $line.find('span').text('date anchor');
+            $line.attr('title', 'Date source is not mounted');
+        }
+        $line.prop('hidden', false);
     }
 
     function scrollPaneToCardID(pane, id) {
@@ -2349,6 +2505,7 @@ $(function() {
         });
         var contentY = marker ? marker.scrollY : timelineYForCard(pane, info);
         var top = Math.max(0, contentY - timelineRailAnchor(timelineEl));
+        pane.virtual.pendingRailScrollID = id;
         timelineEl.scrollTop = top;
         scheduleTimelineRailTick(pane);
     }
@@ -2375,13 +2532,33 @@ $(function() {
         return timeline ? Math.round(timeline.clientHeight * 0.35) : 0;
     }
 
-    function ensureTimelineRailTailSpace(pane) {
+    function ensureTimelineRailTailSpace(pane, minScrollTop) {
         var timeline = pane && pane.$timeline ? pane.$timeline.get(0) : null;
         if (!timeline) {
             return;
         }
         // Keep the final date marker alignable with the same viewport anchor as every other marker.
-        timeline.style.setProperty('--timeline-rail-tail', Math.ceil(timeline.clientHeight * 0.65) + 'px');
+        var tail = Math.ceil(timeline.clientHeight * 0.65);
+        timeline.style.setProperty('--timeline-rail-tail', tail + 'px');
+        if (Number.isFinite(minScrollTop)) {
+            var maxScrollTop = Math.max(0, timeline.scrollHeight - timeline.clientHeight);
+            if (minScrollTop > maxScrollTop) {
+                tail += Math.ceil(minScrollTop - maxScrollTop) + 1;
+                timeline.style.setProperty('--timeline-rail-tail', tail + 'px');
+            }
+        }
+    }
+
+    function ensureTimelineRailTailForMarkers(pane) {
+        var timeline = pane && pane.$timeline ? pane.$timeline.get(0) : null;
+        var markers = pane && pane.virtual && pane.virtual.rail ? pane.virtual.rail.markers : [];
+        if (!timeline || !markers || markers.length === 0) {
+            return;
+        }
+        var lastMarkerY = markers.reduce(function(maxY, marker) {
+            return Math.max(maxY, marker.scrollY);
+        }, 0);
+        ensureTimelineRailTailSpace(pane, Math.max(0, lastMarkerY - timelineRailAnchor(timeline)));
     }
 
     function buildGroups(pane, cards, mode, sessionMin) {
