@@ -69,6 +69,11 @@ func Photos(roots []string, side model.Side, recursive bool, refreshMetadata boo
 
 func photosFromRoot(root string, side model.Side, recursive bool, refreshMetadata bool, extractor *exif.Extractor, st *store.Store, reporter progress.Reporter) ([]model.Photo, error) {
 	root = filepath.Clean(root)
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	root = absRoot
 	slog.Info("starting photo scan", "side", side, "root", root, "recursive", recursive, "refresh_metadata", refreshMetadata)
 	if reporter != nil {
 		reporter.SetOperation("file.scan", root, 0)

@@ -2,8 +2,17 @@
     <script type="application/json" data-pane-model-json>{{.pane.ModelJSON}}</script>
     <div class="pane-header">
         <h2>
-            <span data-pane-title-default>{{.pane.HeaderTitle}}</span>
-            <span data-pane-title-preview hidden>Preview</span>
+            <span class="pane-title-picker">
+                <button type="button" class="pane-title-toggle" data-pane-title-toggle data-pane-title-side="{{.pane.SectionSide}}" aria-expanded="false">
+                    <span data-pane-title-default>{{.pane.HeaderTitle}}</span>
+                    <span data-pane-title-preview hidden>Preview</span>
+                    <span class="pane-title-caret" aria-hidden="true"></span>
+                </button>
+                <span class="pane-title-menu" data-pane-title-menu hidden>
+                    <button type="button" data-pane-title-mode="thumbs" data-pane-title-side="{{.pane.SectionSide}}" hidden>{{.pane.HeaderTitle}}</button>
+                    <button type="button" data-pane-title-mode="preview" data-pane-title-side="{{.pane.SectionSide}}">Preview</button>
+                </span>
+            </span>
             {{if .pane.DirSegments}}
             <span class="pane-directory-path" data-pane-title-path title="{{.pane.DirPath}}">
                 {{range $idx, $segment := .pane.DirSegments}}
@@ -23,6 +32,11 @@
             <select class="timezone-select" data-timezone-select aria-label="{{.pane.TimezoneLabel}}"></select>
             {{end}}
         </div>
+        <div class="pane-header-actions">
+            <a href="#" class="pane-header-action-link" data-pane-preview-download hidden title="Download original image" aria-label="Download original image">
+                <span class="fa-solid fa-download" aria-hidden="true"></span>
+            </a>
+        </div>
     </div>
     {{if and .pane.Paths (not .pane.Browser)}}
     <div class="pane-media-view">
@@ -38,6 +52,14 @@
                 {{end}}
             </div>
         </div>
+        <div class="timeline-rail" data-timeline-rail hidden>
+            <div class="timeline-rail-track" data-rail-track>
+                <div class="timeline-rail-markers" data-rail-markers></div>
+                <div class="timeline-rail-current" data-rail-current>
+                    <span class="timeline-rail-current-label" data-rail-current-label></span>
+                </div>
+            </div>
+        </div>
         <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
             <div class="pane-preview-empty empty-state" data-pane-preview-empty>
                 Select a {{.pane.PreviewLabel}} to preview it here.
@@ -47,7 +69,7 @@
             </div>
         </div>
     </div>
-    <div class="metadata-panel">
+    <div class="metadata-panel" data-metadata-mode="exif">
         <button type="button" class="metadata-panel-handle" data-action="toggle-metadata-panel" aria-expanded="true" aria-label="Collapse metadata panel">
             <span class="metadata-panel-grip" aria-hidden="true"></span>
         </button>
@@ -71,6 +93,10 @@
                             <tr><th>EXIF GPS</th><td data-field="exif-gps">n/a</td></tr>
                         </tbody>
                     </table>
+                <div class="gps-coordinate-actions">
+                    <button type="button" class="sync-btn secondary gps-coordinate-icon-btn" data-action="copy-map-coordinates" disabled title="Copy coordinates" aria-label="Copy coordinates"><span class="fa-regular fa-copy" aria-hidden="true"></span></button>
+                    <button type="button" class="sync-btn secondary gps-coordinate-icon-btn" data-action="paste-map-coordinates" disabled title="Paste coordinates" aria-label="Paste coordinates"><span class="fa-solid fa-paste" aria-hidden="true"></span></button>
+                </div>
                 </div>
                 <div class="metadata-column metadata-secondary">
                     <div class="metadata-secondary-panel is-active" data-panel="exif">
@@ -142,8 +168,16 @@
                 <input type="text" class="directory-search-input" data-directory-search-input spellcheck="false" autocomplete="off" placeholder="Filter directories">
             </div>
         </div>
-    </div>
-    <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
+        </div>
+        <div class="timeline-rail" data-timeline-rail hidden>
+            <div class="timeline-rail-track" data-rail-track>
+                <div class="timeline-rail-markers" data-rail-markers></div>
+                <div class="timeline-rail-current" data-rail-current>
+                    <span class="timeline-rail-current-label" data-rail-current-label></span>
+                </div>
+            </div>
+        </div>
+        <div class="pane-preview pane-media-panel" data-pane-media="preview" hidden>
         <div class="pane-preview-empty empty-state" data-pane-preview-empty>
             Select a {{.pane.PreviewLabel}} to preview it here.
         </div>

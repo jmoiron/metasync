@@ -20,9 +20,12 @@ $(function() {
     };
     var applyTaskState = null;
     var geoLookupRequestSeq = 0;
+    var gpsCoordinateClipboard = null;
     var displayTimelineMsCallCount = 0;
     var initialDisplayTimelineMsReported = false;
+    var timelineRailResizeRAF = 0;
     var targetSelectionAnchorID = '';
+    var referenceSelectionAnchorID = '';
     var metadataPanelState = {
         target: localStorage.getItem('metadata-panel-target') !== 'closed',
         reference: localStorage.getItem('metadata-panel-reference') !== 'closed'
@@ -36,6 +39,12 @@ $(function() {
         target: localStorage.getItem('pane-view-target') || 'thumbs',
         reference: localStorage.getItem('pane-view-reference') || 'thumbs'
     };
+    paneViewMode.target = paneViewMode.target === 'preview' ? 'preview' : 'thumbs';
+    paneViewMode.reference = paneViewMode.reference === 'preview' ? 'preview' : 'thumbs';
+    if (paneViewMode.target === 'preview' && paneViewMode.reference === 'preview') {
+        paneViewMode.reference = 'thumbs';
+        localStorage.setItem('pane-view-reference', 'thumbs');
+    }
     var spinnerRenderThreshold = 100;
     var photoTemplate = document.getElementById('photo-template');
     var photoGroupTemplate = document.getElementById('photo-group-template');
@@ -51,6 +60,8 @@ $(function() {
     };
 
     applyTheme(localStorage.getItem('theme') || 'light');
+    $('#dev-mode-toggle').prop('checked', localStorage.getItem('dev-mode') === 'true');
+    updateDevPane();
     initializeTimezoneSelectors();
     initializeScopeControl();
     bindBasicControls();
@@ -78,12 +89,20 @@ $(function() {
         };
     };
     window.metasyncUI.setPaneViewMode = function(side, mode) {
-        var resolvedSide = side === 'reference' ? 'reference' : 'target';
-        var nextMode = mode === 'preview' ? 'preview' : 'thumbs';
-        paneViewMode[resolvedSide] = nextMode;
-        localStorage.setItem('pane-view-' + resolvedSide, nextMode);
-        syncPaneViews();
+        setPaneViewMode(side, mode);
     };
+    bindTimelineScrollForPane(panes.target);
+    bindTimelineScrollForPane(panes.reference);
+    window.addEventListener('resize', function() {
+        if (timelineRailResizeRAF) {
+            return;
+        }
+        timelineRailResizeRAF = window.requestAnimationFrame(function() {
+            timelineRailResizeRAF = 0;
+            refreshPaneTimelineRail(panes.target);
+            refreshPaneTimelineRail(panes.reference);
+        });
+    });
     renderGroupsWithOptionalSpinner([panes.target, panes.reference], function() {
         reportInitialDisplayTimelineMsUsage();
         refreshSyncUI();
@@ -91,6 +110,7 @@ $(function() {
         applyLensHighlightState();
         syncMetadataPanelState();
         syncPaneViews();
+        updateDevPane();
     });
 
     function buildPaneState($pane, sideName) {
@@ -107,6 +127,9 @@ $(function() {
                 side: sideName,
                 isVisible: true,
                 baseExifMs: parseExifTime($card.attr('data-base-exif-time')),
+                sourcePath: strField(model, 'path'),
+                relativePath: strField(model, 'relative_path'),
+                baseName: strField(model, 'basename'),
                 model: model || null,
                 $el: $card
             };
@@ -123,7 +146,22 @@ $(function() {
             $pane: $pane,
             cards: cards,
             photoModelByID: photoModelByID,
-            $timezoneSelect: $pane.find('[data-timezone-select]').first()
+            $timezoneSelect: $pane.find('[data-timezone-select]').first(),
+            $timeline: $pane.find('.timeline').first(),
+            $rail: $pane.find('[data-timeline-rail]').first(),
+            virtual: {
+                groups: [],
+                sortedTimeline: [],
+                mountedRange: null,
+                mountedCardCount: 0,
+                mountedGroups: [],
+                currentTimeSourceItem: null,
+                currentTimeSourceEl: null,
+                $currentTimeDebugLine: $(),
+                rail: null,
+                mode: 'session'
+            },
+            railTickRAF: 0
         };
     }
 
@@ -285,6 +323,12 @@ $(function() {
             applyTheme(next);
         });
 
+        $('#dev-mode-toggle').on('change', function() {
+            var enabled = $(this).is(':checked');
+            localStorage.setItem('dev-mode', enabled ? 'true' : 'false');
+            updateDevPane();
+        });
+
         $('#scope').on('change', function() {
             var value = String($(this).val() || 'global');
             localStorage.setItem('scope', value);
@@ -302,6 +346,7 @@ $(function() {
         $workspace.on('change', '[data-timezone-select]', function() {
             var $pane = $(this).closest('.pane');
             var pane = $pane.is(panes.target.$pane) ? panes.target : panes.reference;
+            renderGroupsForPane(pane);
             var $selected = pane.side === 'target' ? activeTargetCard() : selectedCardForPane($pane);
             if ($selected.length > 0) {
                 updatePaneMetadataFromCard($pane, $selected);
@@ -326,6 +371,9 @@ $(function() {
     function initializeScopeControl() {
         var stored = localStorage.getItem('scope');
         var current = String($('#scope').val() || 'global');
+        if (stored === 'session') {
+            stored = 'group';
+        }
         setScopeValue(isValidScopeValue(stored) ? stored : current, false);
     }
 
@@ -341,7 +389,7 @@ $(function() {
     }
 
     function isValidScopeValue(value) {
-        return value === 'global' || value === 'session' || value === 'image';
+        return value === 'global' || value === 'group' || value === 'image';
     }
 
     function syncScopeUI() {
@@ -358,7 +406,7 @@ $(function() {
 
     function scopeIconClass(value) {
         switch (value) {
-        case 'session':
+        case 'group':
             return 'fa-regular fa-object-group';
         case 'image':
             return 'fa-solid fa-image';
@@ -405,19 +453,31 @@ $(function() {
         $workspace.on('click', '.photo-card', function(evt) {
             var $card = $(this);
             var $pane = $card.closest('.pane');
+            var pane = $pane.is(panes.target.$pane) ? panes.target : panes.reference;
+            var hasSelectionModifier = !!(evt.shiftKey || evt.ctrlKey || evt.metaKey);
+            var scope = String($('#scope').val() || 'global');
 
-            if ($pane.is(panes.target.$pane) && String($('#scope').val() || 'global') === 'image') {
-                updateTargetImageScopeSelection($card, evt);
+            if ($card.hasClass('is-selected') && !hasSelectionModifier) {
+                showPhotoDetailModal(pane, $card);
+                return;
+            }
+
+            if ($pane.is(panes.target.$pane) && hasSelectionModifier && scope === 'global') {
+                setScopeValue('image', false);
+            }
+
+            if (hasSelectionModifier || ($pane.is(panes.target.$pane) && scope === 'image')) {
+                updatePaneImageSelection(pane, $card, evt);
             } else {
-                $pane.find('.photo-card').removeClass('is-selected is-selection-anchor');
+                pane.cards.forEach(function(info) {
+                    info.$el.removeClass('is-selected is-selection-anchor');
+                });
                 $card.addClass('is-selected');
-                if ($pane.is(panes.target.$pane)) {
-                    setTargetSelectionAnchor($card);
-                }
+                setPaneSelectionAnchor(pane, $card);
             }
             updatePaneMetadataFromCard($pane, $card);
-            if ($pane.is(panes.target.$pane) && String($('#scope').val() || 'global') === 'session') {
-                renderGroupsForPane(panes.target);
+            if ($pane.is(panes.target.$pane) && String($('#scope').val() || 'global') === 'group') {
+                updateTargetGroupScopeHighlight();
             }
             syncSelectionOutlineState();
             syncPaneMap($pane);
@@ -427,31 +487,77 @@ $(function() {
     }
 
     function bindPaneViewControls() {
-        $('[data-pane-view-toggle]').on('click', function() {
-            var $toggle = $(this);
-            var side = String($toggle.attr('data-pane-view-side') || '');
-            if (!side) {
+        $workspace.on('click', '[data-pane-title-toggle]', function(evt) {
+            evt.preventDefault();
+            evt.stopPropagation();
+            var $picker = $(this).closest('.pane-title-picker');
+            var $menu = $picker.find('[data-pane-title-menu]').first();
+            var opening = $menu.prop('hidden');
+            closePaneTitleMenus();
+            if (opening) {
+                $menu.prop('hidden', false);
+                $(this).attr('aria-expanded', 'true');
+            }
+        });
+        $workspace.on('click', '[data-pane-title-mode]', function(evt) {
+            evt.preventDefault();
+            evt.stopPropagation();
+            var $option = $(this);
+            if ($option.prop('disabled')) {
                 return;
             }
-            paneViewMode[side] = paneViewMode[side] === 'preview' ? 'thumbs' : 'preview';
-            localStorage.setItem('pane-view-' + side, paneViewMode[side]);
-            syncPaneViews();
+            setPaneViewMode($option.attr('data-pane-title-side'), $option.attr('data-pane-title-mode'));
+            closePaneTitleMenus();
         });
-        syncPaneViewToggleUI();
+        $(document).on('click.pane-title-menu', function(evt) {
+            if (!$(evt.target).closest('.pane-title-picker').length) {
+                closePaneTitleMenus();
+            }
+        }).on('keydown.pane-title-menu', function(evt) {
+            if (evt.key === 'Escape') {
+                closePaneTitleMenus();
+            }
+        });
+        syncPaneTitleMenus();
     }
 
-    function syncPaneViewToggleUI() {
-        $('[data-pane-view-toggle]').each(function() {
+    function setPaneViewMode(side, mode) {
+        var resolvedSide = side === 'reference' ? 'reference' : 'target';
+        var nextMode = mode === 'preview' ? 'preview' : 'thumbs';
+        if (nextMode === 'preview') {
+            var otherSide = resolvedSide === 'target' ? 'reference' : 'target';
+            paneViewMode[otherSide] = 'thumbs';
+            localStorage.setItem('pane-view-' + otherSide, 'thumbs');
+        }
+        paneViewMode[resolvedSide] = nextMode;
+        localStorage.setItem('pane-view-' + resolvedSide, nextMode);
+        syncPaneViews();
+        updateDevPane();
+    }
+
+    function closePaneTitleMenus() {
+        $('[data-pane-title-menu]').prop('hidden', true);
+        $('[data-pane-title-toggle]').attr('aria-expanded', 'false');
+    }
+
+    function syncPaneTitleMenus() {
+        $('[data-pane-title-toggle]').each(function() {
             var $toggle = $(this);
-            var side = String($toggle.attr('data-pane-view-side') || '');
-            var mode = paneViewMode[side] === 'preview' ? 'preview' : 'thumbs';
-            $toggle.attr('data-pane-view-mode', mode);
-            $toggle.attr('aria-pressed', mode === 'preview' ? 'true' : 'false');
+            var side = String($toggle.attr('data-pane-title-side') || '');
+            var isPreview = paneViewMode[side] === 'preview';
+            var otherSide = side === 'target' ? 'reference' : 'target';
+            var $picker = $toggle.closest('.pane-title-picker');
+            $picker.find('[data-pane-title-mode="thumbs"]').prop('hidden', !isPreview);
+            $picker.find('[data-pane-title-mode="preview"]')
+                .prop('disabled', paneViewMode[otherSide] === 'preview')
+                .prop('hidden', isPreview);
+            $toggle.find('[data-pane-title-default]').prop('hidden', isPreview);
+            $toggle.find('[data-pane-title-preview]').prop('hidden', !isPreview);
         });
     }
 
     function syncPaneViews() {
-        syncPaneViewToggleUI();
+        syncPaneTitleMenus();
         syncPaneViewFor(panes.target, panes.reference, 'reference image');
         syncPaneViewFor(panes.reference, panes.target, 'target image');
     }
@@ -469,12 +575,20 @@ $(function() {
 
         $thumbs.prop('hidden', mode !== 'thumbs');
         $preview.prop('hidden', mode !== 'preview');
-        pane.$pane.find('[data-pane-title-default]').prop('hidden', mode === 'preview');
-        pane.$pane.find('[data-pane-title-preview]').prop('hidden', mode !== 'preview');
         pane.$pane.find('[data-pane-title-path]').prop('hidden', mode === 'preview');
         pane.$pane.find('.pane-header-meta').prop('hidden', mode === 'preview');
         pane.$pane.find('.metadata-panel').prop('hidden', mode === 'preview');
+        pane.$pane.find('[data-timeline-rail]').prop('hidden', mode !== 'thumbs');
+        if (mode === 'thumbs' && pane.virtual.viewMode !== 'thumbs' && pane.virtual.groups.length > 0) {
+            window.requestAnimationFrame(function() {
+                refreshPaneTimelineRail(pane);
+            });
+        }
+        pane.virtual.viewMode = mode;
+        var $download = pane.$pane.find('[data-pane-preview-download]').first();
+        $download.prop('hidden', mode !== 'preview').attr('href', '#').removeAttr('download');
         if (mode !== 'preview') {
+            scheduleTimelineRailTick(pane);
             return;
         }
 
@@ -484,20 +598,218 @@ $(function() {
         if ($source.length === 0) {
             $empty.text('Select a ' + oppositeLabel + ' to preview it here.').prop('hidden', false);
             $image.prop('hidden', true).attr('src', '').attr('alt', '');
+            $download.prop('hidden', true).attr('href', '#').removeAttr('download');
             return;
         }
 
-        var path = String($source.attr('data-path') || '');
+        var path = previewSourcePathForCard(oppositePane, $source);
         var basename = String($source.attr('data-basename') || 'selected image');
         if (!path) {
             $empty.text('Selected ' + oppositeLabel + ' path is missing.').prop('hidden', false);
             $image.prop('hidden', true).attr('src', '').attr('alt', '');
+            $download.prop('hidden', true).attr('href', '#').removeAttr('download');
             return;
         }
-        $image.attr('src', '/image?path=' + encodeURIComponent(path));
+        $image.attr('src', imageURLForPath(path));
         $image.attr('alt', basename);
         $image.prop('hidden', false);
         $empty.prop('hidden', true);
+        $download.attr('href', imageURLForPath(path, { download: true }));
+        $download.attr('download', basename);
+        $download.prop('hidden', false);
+    }
+
+    function previewSourcePathForCard(pane, $card) {
+        if (!$card || $card.length === 0) {
+            return '';
+        }
+
+        var photoID = String($card.attr('data-photo-id') || '');
+        if (pane && photoID) {
+            var info = cardInfoByID(pane, photoID);
+            if (info) {
+                if (info.sourcePath) {
+                    return info.sourcePath;
+                }
+                if (info.model) {
+                    var modelPath = strField(info.model, 'path');
+                    if (modelPath) {
+                        return modelPath;
+                    }
+                }
+            }
+        }
+
+        var path = String($card.attr('data-path') || '');
+        if (isAbsoluteFilesystemPath(path)) {
+            return path;
+        }
+
+        var relativePath = String($card.attr('data-relative-path') || '');
+        if ((!relativePath || relativePath === path) && pane && photoID) {
+            var infoFallback = cardInfoByID(pane, photoID);
+            if (infoFallback && infoFallback.relativePath) {
+                relativePath = infoFallback.relativePath;
+            }
+            if ((!path || path === relativePath) && infoFallback && infoFallback.baseName) {
+                path = infoFallback.baseName;
+            }
+        }
+        if (isAbsoluteFilesystemPath(relativePath)) {
+            return relativePath;
+        }
+
+        var baseDir = paneBaseDirectory(pane);
+        if (baseDir) {
+            if (relativePath) {
+                return joinFilesystemPath(baseDir, relativePath);
+            }
+            if (path) {
+                return joinFilesystemPath(baseDir, path);
+            }
+        }
+
+        return path || relativePath;
+    }
+
+    function paneBaseDirectory(pane) {
+        if (!pane || !pane.$pane || pane.$pane.length === 0) {
+            return '';
+        }
+        return String(pane.$pane.find('[data-pane-title-path]').first().attr('title') || '');
+    }
+
+    function isAbsoluteFilesystemPath(path) {
+        path = String(path || '');
+        if (!path) {
+            return false;
+        }
+        if (path.charAt(0) === '/' || path.charAt(0) === '\\') {
+            return true;
+        }
+        return /^[A-Za-z]:[\\/]/.test(path);
+    }
+
+    function joinFilesystemPath(base, suffix) {
+        var normalizedBase = String(base || '');
+        var normalizedSuffix = String(suffix || '');
+        if (!normalizedBase) {
+            return normalizedSuffix;
+        }
+        if (!normalizedSuffix) {
+            return normalizedBase;
+        }
+
+        var windowsBase = /^[A-Za-z]:[\\/]/.test(normalizedBase);
+        var sep = windowsBase ? '\\' : '/';
+        normalizedBase = normalizedBase.replace(/[\\/]+$/, '');
+        normalizedSuffix = normalizedSuffix.replace(/^[\\/]+/, '');
+        return normalizedBase + sep + normalizedSuffix;
+    }
+
+    function imageURLForPath(path, opts) {
+        var normalized = String(path || '').replace(/\\/g, '/');
+        var parts = normalized.split('/').filter(function(part) {
+            return part !== '';
+        }).map(function(part) {
+            return encodeURIComponent(part);
+        });
+        var url = '/image/' + parts.join('/');
+        var params = [];
+        if (opts && opts.download) {
+            params.push('download=1');
+        }
+        if (params.length > 0) {
+            url += '?' + params.join('&');
+        }
+        return url;
+    }
+
+    function bindTimelineScrollForPane(pane) {
+        if (!pane || !pane.$timeline || pane.$timeline.length === 0) {
+            return;
+        }
+        if (pane.$timeline.attr('data-rail-bound') === '1') {
+            return;
+        }
+        pane.$timeline.attr('data-rail-bound', '1');
+        pane.$timeline.on('scroll', function() {
+            scheduleTimelineRailTick(pane);
+        });
+    }
+
+    function scheduleTimelineRailTick(pane) {
+        if (!pane || pane.railTickRAF) {
+            return;
+        }
+        pane.railTickRAF = window.requestAnimationFrame(function() {
+            pane.railTickRAF = 0;
+            if (updateTimelineVirtualWindow(pane)) {
+                refreshMountedTimelineRailPositions(pane);
+            }
+            applyPendingRailScroll(pane);
+            updateTimelineRailCurrentMarker(pane);
+            updateDevPane();
+        });
+    }
+
+    function applyPendingRailScroll(pane) {
+        var id = pane && pane.virtual ? pane.virtual.pendingRailScrollID : '';
+        if (!id || !pane.$timeline || pane.$timeline.length === 0) {
+            return;
+        }
+        pane.virtual.pendingRailScrollID = '';
+        var marker = pane.virtual.rail && pane.virtual.rail.markers.find(function(item) {
+            return item.id === id;
+        });
+        var timeline = pane.$timeline.get(0);
+        if (!marker || !timeline) {
+            return;
+        }
+        var top = Math.max(0, marker.scrollY - timelineRailAnchor(timeline));
+        timeline.scrollTop = top;
+    }
+
+    function updateDevPane() {
+        var enabled = localStorage.getItem('dev-mode') === 'true';
+        $('#dev-pane').prop('hidden', !enabled);
+        if (enabled) {
+            $('#dev-target-count').text(formatMountedCardCount(panes.target));
+            $('#dev-reference-count').text(formatMountedCardCount(panes.reference));
+        }
+        syncTimelineCurrentDebug(panes.target, panes.target.virtual.currentTimeSourceItem, enabled);
+        syncTimelineCurrentDebug(panes.reference, panes.reference.virtual.currentTimeSourceItem, enabled);
+    }
+
+    function formatMountedCardCount(pane) {
+        if (!pane) {
+            return '0 / 0 / 0';
+        }
+        var total = Array.isArray(pane.cards) ? pane.cards.length : 0;
+        var timeline = pane.$timeline && pane.$timeline.get(0);
+        var activeImages = timeline ? timeline.querySelectorAll('.photo-card img.thumb-image') : [];
+        var index = 0;
+        var firstImage = -1;
+        var lastImage = -1;
+        (pane.virtual && pane.virtual.groups || []).forEach(function(group) {
+            (group.cards || []).forEach(function(info) {
+                var el = info.$el && info.$el.get(0);
+                var img = el && el.querySelector('img.thumb-image');
+                if (img && timeline && timeline.contains(img)) {
+                    if (firstImage < 0) {
+                        firstImage = index;
+                    }
+                    lastImage = index;
+                }
+                index += 1;
+            });
+        });
+        if (firstImage < 0) {
+            return '0 / 0 / ' + total;
+        }
+        var before = firstImage;
+        var after = Math.max(0, total - lastImage - 1);
+        return before + ' / ' + activeImages.length + ' / ' + after;
     }
 
     function bindMetadataToggle() {
@@ -532,6 +844,27 @@ $(function() {
         $workspace.on('click', '[data-action="expand-map"]', function(evt) {
             evt.preventDefault();
             openGeoLookupModal($(this).closest('.pane'));
+        });
+        $workspace.on('click', '[data-action="copy-map-coordinates"]', function() {
+            var $pane = $(this).closest('.pane');
+            var pane = $pane.is(panes.reference.$pane) ? panes.reference : panes.target;
+            var $card = pane.side === 'target' ? activeTargetCard() : selectedCardForPane($pane);
+            var lat = parseFloat($card.attr('data-gps-lat'));
+            var lon = parseFloat($card.attr('data-gps-lon'));
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+                return;
+            }
+            gpsCoordinateClipboard = { lat: lat, lon: lon };
+            syncMapCoordinateControls();
+            $('#sync-status').text('Copied GPS coordinates: ' + lat + ', ' + lon + '.');
+        });
+        $workspace.on('click', '[data-action="paste-map-coordinates"]', function() {
+            if (!gpsCoordinateClipboard) {
+                return;
+            }
+            if (setPreviewGPSForScope(gpsCoordinateClipboard.lat, gpsCoordinateClipboard.lon, 'clipboard')) {
+                syncPaneMap(panes.target.$pane);
+            }
         });
 
         $(document).on('click', '[data-action="show-set-gps-time-info"]', function(evt) {
@@ -684,6 +1017,8 @@ $(function() {
             $title.attr('data-collapsed', next ? '1' : '0');
             $title.attr('aria-expanded', next ? 'false' : 'true');
             $title.closest('.timeline-group').toggleClass('is-collapsed', next);
+            var $pane = $title.closest('.pane');
+            refreshPaneTimelineRail($pane.is(panes.reference.$pane) ? panes.reference : panes.target);
         });
         $workspace.on('click', '.timeline-group-jump', function(evt) {
             evt.preventDefault();
@@ -693,6 +1028,18 @@ $(function() {
                 return;
             }
             selectClosestReferenceForTimestamp(targetMs);
+        });
+        $workspace.on('click', '.timeline-rail-marker', function(evt) {
+            evt.preventDefault();
+            evt.stopPropagation();
+            var $marker = $(this);
+            var targetID = String($marker.attr('data-target-id') || '');
+            var $pane = $marker.closest('.pane');
+            var pane = $pane.is(panes.reference.$pane) ? panes.reference : panes.target;
+            if (!targetID || !pane) {
+                return;
+            }
+            scrollPaneToCardID(pane, targetID);
         });
 
         syncTimezoneFixControls();
@@ -765,8 +1112,11 @@ $(function() {
         var $nextPane = $(html.trim());
         pane.$pane.replaceWith($nextPane);
         panes[side] = buildPaneState($nextPane, side);
+        bindTimelineScrollForPane(panes[side]);
         if (side === 'target') {
             targetSelectionAnchorID = '';
+        } else {
+            referenceSelectionAnchorID = '';
         }
 
         if (window.metasyncDirectoryBrowser && typeof window.metasyncDirectoryBrowser.init === 'function') {
@@ -779,6 +1129,7 @@ $(function() {
             updateReferenceNeighborHighlightForSelection();
             syncMetadataPanelState();
             syncPaneViews();
+            updateDevPane();
         });
     }
 
@@ -978,8 +1329,8 @@ $(function() {
         var targetCards = targetCardsForScope(scope);
         var previewCount = 0;
 
-        if ((scope === 'image' || scope === 'session') && targetCards.length === 0) {
-            $('#sync-status').text('Select a target image for image/session GPS preview scope.');
+        if ((scope === 'image' || scope === 'group') && targetCards.length === 0) {
+            $('#sync-status').text('Select a target image for image/group GPS preview scope.');
             return false;
         }
 
@@ -1022,8 +1373,8 @@ $(function() {
     function setPreviewGPSForScope(lat, lon, source) {
         var scope = String($('#scope').val() || 'global');
         var targetCards = targetCardsForScope(scope);
-        if ((scope === 'image' || scope === 'session') && targetCards.length === 0) {
-            $('#sync-status').text('Select a target image for image/session GPS preview scope.');
+        if ((scope === 'image' || scope === 'group') && targetCards.length === 0) {
+            $('#sync-status').text('Select a target image for image/group GPS preview scope.');
             return false;
         }
         targetCards.forEach(function(info) {
@@ -1170,44 +1521,19 @@ $(function() {
             return selectedTargetInfos();
         }
 
+        var mode = String($('#grouping-mode').val() || 'session');
         var sessionMin = Math.max(1, Number($('#session-minutes').val()) || 5);
-        var threshold = sessionMin * 60 * 1000;
-        var sessions = buildTargetSessions(threshold);
-        for (var i = 0; i < sessions.length; i += 1) {
-            var session = sessions[i];
-            var found = session.some(function(info) {
+        var groups = buildGroups(panes.target, panes.target.cards, mode, sessionMin);
+        for (var i = 0; i < groups.length; i += 1) {
+            var group = groups[i];
+            var found = group.cards.some(function(info) {
                 return info.id === selectedID;
             });
             if (found) {
-                return session;
+                return group.cards;
             }
         }
         return [selectedInfo];
-    }
-
-    function buildTargetSessions(thresholdMs) {
-        var withTime = panes.target.cards
-            .slice()
-            .filter(function(info) {
-                return Number.isFinite(currentTargetMs(info));
-            })
-            .sort(function(a, b) {
-                return currentTargetMs(a) - currentTargetMs(b);
-            });
-
-        var sessions = [];
-        var current = null;
-        withTime.forEach(function(info) {
-            var ms = currentTargetMs(info);
-            if (!current || ms-current.lastMs > thresholdMs) {
-                current = [];
-                current.lastMs = ms;
-                sessions.push(current);
-            }
-            current.push(info);
-            current.lastMs = ms;
-        });
-        return sessions;
     }
 
     function surroundingReferences(targetMs) {
@@ -1402,13 +1728,13 @@ $(function() {
         if (pane.cards.length === 0) {
             return;
         }
-        var prevScrollTop = 0; // $timeline.scrollTop();
+        var scrollAnchor = captureTimelineScrollAnchor(pane);
         pane.view = paneTimeView(pane.$pane);
 
         var mode = String($('#grouping-mode').val() || 'session');
         var scope = String($('#scope').val() || 'global');
         var selectedTargetID = '';
-        if (scope === 'session' && pane.side === 'target') {
+        if (scope === 'group' && pane.side === 'target') {
             var $selectedTarget = activeTargetCard();
             if ($selectedTarget.length > 0) {
                 selectedTargetID = String($selectedTarget.data('photoId') || '');
@@ -1416,7 +1742,8 @@ $(function() {
         }
         var sessionMin = Math.max(1, Number($('#session-minutes').val()) || 5);
         var groups = buildGroups(pane, pane.cards, mode, sessionMin);
-        renderGroupListIntoTimeline($timeline, pane, groups, mode, scope, selectedTargetID, prevScrollTop);
+        renderGroupListIntoTimeline($timeline, pane, groups, mode, scope, selectedTargetID);
+        updatePaneVirtualStateAndRail(pane, groups, mode, scrollAnchor);
     }
 
     function renderGroupsStaticForPane(pane) {
@@ -1424,12 +1751,12 @@ $(function() {
         if (pane.cards.length === 0) {
             return;
         }
-        var prevScrollTop = 0; // $timeline.scrollTop();
+        var scrollAnchor = captureTimelineScrollAnchor(pane);
         pane.view = paneTimeView(pane.$pane);
         var mode = String($('#grouping-mode').val() || 'session');
         var scope = String($('#scope').val() || 'global');
         var selectedTargetID = '';
-        if (scope === 'session' && pane.side === 'target') {
+        if (scope === 'group' && pane.side === 'target') {
             var $selectedTarget = activeTargetCard();
             if ($selectedTarget.length > 0) {
                 selectedTargetID = String($selectedTarget.data('photoId') || '');
@@ -1437,14 +1764,65 @@ $(function() {
         }
         var sessionMin = Math.max(1, Number($('#session-minutes').val()) || 5);
         var groups = buildGroupsStatic(pane, pane.cards, mode, sessionMin);
-        renderGroupListIntoTimeline($timeline, pane, groups, mode, scope, selectedTargetID, prevScrollTop);
+        renderGroupListIntoTimeline($timeline, pane, groups, mode, scope, selectedTargetID);
+        updatePaneVirtualStateAndRail(pane, groups, mode, scrollAnchor);
     }
 
-    function renderGroupListIntoTimeline($timeline, pane, groups, mode, scope, selectedTargetID, prevScrollTop) {
-        $timeline.empty();
+    function captureTimelineScrollAnchor(pane) {
+        var timeline = pane && pane.$timeline ? pane.$timeline.get(0) : null;
+        if (!timeline) {
+            return null;
+        }
+        var timelineRect = timeline.getBoundingClientRect();
+        var viewportY = timelineRect.top + timeline.clientHeight * 0.45;
+        var bestCard = null;
+        var bestDistance = Infinity;
+        Array.prototype.forEach.call(timeline.querySelectorAll('.photo-card'), function(card) {
+            var rect = card.getBoundingClientRect();
+            if (rect.bottom <= timelineRect.top || rect.top >= timelineRect.bottom) {
+                return;
+            }
+            var distance = Math.abs((rect.top + rect.height / 2) - viewportY);
+            if (distance < bestDistance) {
+                bestCard = card;
+                bestDistance = distance;
+            }
+        });
+        if (bestCard) {
+            return {
+                id: String(bestCard.getAttribute('data-photo-id') || ''),
+                element: bestCard,
+                offset: bestCard.getBoundingClientRect().top - timelineRect.top,
+                scrollTop: timeline.scrollTop
+            };
+        }
+
+        var previousItems = pane.virtual && pane.virtual.sortedTimeline || [];
+        var targetY = timeline.scrollTop + viewportY - timelineRect.top;
+        var nearest = null;
+        previousItems.forEach(function(item) {
+            var distance = Math.abs(item.scrollY - targetY);
+            if (!nearest || distance < nearest.distance) {
+                nearest = { item: item, distance: distance };
+            }
+        });
+        if (nearest) {
+            return {
+                id: nearest.item.id,
+                element: nearest.item.info && nearest.item.info.$el ? nearest.item.info.$el.get(0) : null,
+                offset: nearest.item.scrollY - timeline.scrollTop,
+                scrollTop: timeline.scrollTop
+            };
+        }
+        return { id: '', offset: 0, scrollTop: timeline.scrollTop };
+    }
+
+    function renderGroupListIntoTimeline($timeline, pane, groups, mode, scope, selectedTargetID) {
+        $timeline.children().detach();
         var groupTemplate = photoGroupTemplate && photoGroupTemplate.content ? photoGroupTemplate.content.firstElementChild : null;
+        var timelineIndex = 0;
         groups.forEach(function(group) {
-            var $group = groupTemplate ? $(groupTemplate.cloneNode(true)) : $('<div class="timeline-group"><div class="timeline-group-header"><div class="timeline-group-meta"><button type="button" class="timeline-group-title"></button><a href="#" class="timeline-group-jump" hidden></a></div><div class="timeline-group-count"></div></div><div class="thumb-grid"></div></div>');
+            var $group = groupTemplate ? $(groupTemplate.cloneNode(true)) : $('<div class="timeline-group"><div class="timeline-group-header"><div class="timeline-group-meta"><button type="button" class="timeline-group-title"></button><span class="timeline-group-separator" data-group-date-separator aria-hidden="true">·</span><a href="#" class="timeline-group-jump" hidden></a><span class="timeline-group-separator" aria-hidden="true">·</span><div class="timeline-group-count"></div></div></div><div class="thumb-grid"></div></div>');
             var groupKey = pane.side + '|' + mode + '|' + group.key;
             var collapsed = !!collapsedGroups[groupKey];
             var $title = $group.find('.timeline-group-title').first();
@@ -1458,27 +1836,47 @@ $(function() {
                 $jump.attr('data-target-ms', String(group.anchorMs));
                 $jump.text(formatGroupDate(group.anchorMs));
                 $jump.prop('hidden', false);
+                $group.find('[data-group-date-separator]').prop('hidden', false);
             } else {
                 $jump.prop('hidden', true);
+                $group.find('[data-group-date-separator]').prop('hidden', true);
             }
             $group.find('.timeline-group-count').first().text(group.cards.length + ' image' + (group.cards.length === 1 ? '' : 's'));
             var $grid = $group.find('.thumb-grid').first();
-            group.cards.forEach(function(info) {
-                $grid.append(info.$el);
+            group.startIndex = timelineIndex;
+            group.endIndex = timelineIndex + group.cards.length - 1;
+            group.$el = $group;
+            group.$grid = $grid;
+            group.collapsed = collapsed;
+            group.cards.forEach(function(info, groupIndex) {
+                info.timelineIndex = timelineIndex++;
+                info.groupIndex = groupIndex;
+                info.group = group;
             });
 
-            if (pane.side === 'target' && mode === 'session' && scope === 'session' && selectedTargetID !== '') {
-                var isSelectedSession = group.cards.some(function(info) {
+            if (pane.side === 'target' && scope === 'group' && selectedTargetID !== '') {
+                var isSelectedGroup = group.cards.some(function(info) {
                     return info.id === selectedTargetID;
                 });
-                $group.toggleClass('scope-selected', isSelectedSession);
-                $group.toggleClass('scope-unselected', !isSelectedSession);
+                $group.toggleClass('scope-selected', isSelectedGroup);
+                $group.toggleClass('scope-unselected', !isSelectedGroup);
             }
 
             $group.toggleClass('is-collapsed', collapsed);
             $timeline.append($group);
         });
-        // $timeline.scrollTop(prevScrollTop || 0);
+    }
+
+    function updateTargetGroupScopeHighlight() {
+        var $selected = activeTargetCard();
+        var selectedID = $selected.length > 0 ? String($selected.data('photoId') || '') : '';
+        panes.target.virtual.groups.forEach(function(group) {
+            var selectedGroup = selectedID !== '' && group.cards.some(function(info) {
+                return info.id === selectedID;
+            });
+            group.$el.toggleClass('scope-selected', selectedGroup);
+            group.$el.toggleClass('scope-unselected', selectedID !== '' && !selectedGroup);
+        });
     }
 
     function setPaneBuildSpinnerVisible(pane, visible) {
@@ -1486,6 +1884,681 @@ $(function() {
             return;
         }
         pane.$pane.find('[data-pane-build-spinner]').prop('hidden', !visible);
+    }
+
+    function updatePaneVirtualStateAndRail(pane, groups, mode, scrollAnchor) {
+        if (!pane) {
+            return;
+        }
+        ensureTimelineRailTailSpace(pane);
+        pane.virtual.groups = groups || [];
+        pane.virtual.mode = String(mode || 'session');
+        refreshVirtualGroupMetrics(pane);
+        var total = pane.cards.length;
+        var anchorInfo = null;
+        if (scrollAnchor && scrollAnchor.id) {
+            (groups || []).some(function(group) {
+                anchorInfo = (group.cards || []).find(function(info) {
+                    return info.id === scrollAnchor.id;
+                }) || null;
+                return !!anchorInfo;
+            });
+        }
+        var initialCenter = anchorInfo ? anchorInfo.timelineIndex : 0;
+        var initialWindow = timelineWindow(pane, total, initialCenter);
+        mountTimelineWindow(pane, initialWindow);
+        pane.virtual.sortedTimeline = buildSortedTimelineCards(pane, groups);
+        captureTimelineCardPositions(pane, pane.virtual.sortedTimeline);
+        var timeline = pane.$timeline && pane.$timeline.get(0);
+        var anchorEl = anchorInfo && anchorInfo.$el ? anchorInfo.$el.get(0) : null;
+        if (timeline && scrollAnchor && anchorEl && anchorEl.isConnected) {
+            var timelineTop = timeline.getBoundingClientRect().top;
+            timeline.scrollTop += anchorEl.getBoundingClientRect().top - timelineTop - scrollAnchor.offset;
+        } else if (timeline && scrollAnchor) {
+            timeline.scrollTop = scrollAnchor.scrollTop;
+        }
+        pane.virtual.rail = buildTimelineRailModel(pane.virtual.sortedTimeline);
+        ensureTimelineRailTailForMarkers(pane);
+        renderTimelineRail(pane);
+        updateTimelineRailCurrentMarker(pane);
+        scheduleTimelineRailTick(pane);
+    }
+
+    function buildSortedTimelineCards(pane, groups) {
+        var ordered = [];
+        (groups || []).forEach(function(group) {
+            group.timelineItems = [];
+            (group.cards || []).forEach(function(info) {
+                var ms = displayTimelineMsForPane(pane, info.$el);
+                if (Number.isFinite(ms) && info.id && info.isVisible !== false) {
+                    var item = { id: info.id, ms: ms, info: info, scrollY: 0 };
+                    ordered.push(item);
+                    group.timelineItems.push(item);
+                }
+            });
+        });
+        return ordered;
+    }
+
+    function captureTimelineCardPositions(pane, ordered) {
+        var timeline = pane.$timeline && pane.$timeline.get(0);
+        if (!timeline) {
+            return;
+        }
+        var timelineRect = timeline.getBoundingClientRect();
+        var groupPositions = new Map();
+        (pane.virtual.groups || []).forEach(function(group) {
+            var groupEl = group.$el && group.$el.get(0);
+            var gridEl = group.$grid && group.$grid.get(0);
+            if (!groupEl || !gridEl) {
+                return;
+            }
+            var groupRect = groupEl.getBoundingClientRect();
+            var gridRect = gridEl.getBoundingClientRect();
+            groupPositions.set(group, {
+                groupY: Math.max(0, groupRect.top - timelineRect.top + timeline.scrollTop),
+                gridY: Math.max(0, gridRect.top - timelineRect.top + timeline.scrollTop),
+                collapsed: groupEl.classList.contains('is-collapsed')
+            });
+            group.virtualY = groupPositions.get(group).groupY;
+            group.virtualGridY = groupPositions.get(group).gridY;
+        });
+        ordered.forEach(function(item) {
+            var group = item.info && item.info.group;
+            var position = groupPositions.get(group);
+            if (!group || !position) {
+                return;
+            }
+            if (position.collapsed) {
+                item.scrollY = position.groupY;
+                return;
+            }
+            var metrics = group.virtualMetrics || { columns: 1, cellHeight: 128, rowGap: 12 };
+            var visibleIndex = item.info.virtualVisibleIndex;
+            var row = Math.floor(Math.max(0, visibleIndex) / metrics.columns);
+            item.scrollY = position.gridY + row * (metrics.cellHeight + metrics.rowGap);
+        });
+    }
+
+    function refreshPaneTimelineRail(pane) {
+        if (!pane || !pane.virtual || !pane.virtual.groups) {
+            return;
+        }
+        ensureTimelineRailTailSpace(pane);
+        refreshVirtualGroupMetrics(pane);
+        captureTimelineCardPositions(pane, pane.virtual.sortedTimeline);
+        var center = timelineCenterIndex(pane);
+        mountTimelineWindow(pane, timelineWindow(pane, pane.cards.length, center));
+        pane.virtual.sortedTimeline = buildSortedTimelineCards(pane, pane.virtual.groups);
+        captureTimelineCardPositions(pane, pane.virtual.sortedTimeline);
+        pane.virtual.rail = buildTimelineRailModel(pane.virtual.sortedTimeline);
+        ensureTimelineRailTailForMarkers(pane);
+        renderTimelineRail(pane);
+        updateTimelineRailCurrentMarker(pane);
+    }
+
+    function timelineWindow(pane, total, center) {
+        var helper = window.metasyncTimelineWindow;
+        return helper && typeof helper.computeMountWindow === 'function'
+            ? helper.computeMountWindow(total, center, 100)
+            : { start: Math.max(0, center - 100), end: Math.min(total - 1, center + 100) };
+    }
+
+    function refreshVirtualGroupMetrics(pane) {
+        var updates = [];
+        (pane.virtual.groups || []).forEach(function(group) {
+            var grid = group.$grid && group.$grid.get(0);
+            var groupEl = group.$el && group.$el.get(0);
+            if (!grid || !groupEl) {
+                return;
+            }
+            group.collapsed = groupEl.classList.contains('is-collapsed');
+            var styles = window.getComputedStyle(grid);
+            var columns = String(styles.gridTemplateColumns || '').split(/\s+/).filter(Boolean).length;
+            columns = Math.max(1, columns || 1);
+            var width = grid.clientWidth;
+            var columnGap = parseFloat(styles.columnGap) || 12;
+            var rowGap = parseFloat(styles.rowGap) || 12;
+            var cellHeight = Math.max(128, (width - columnGap * (columns - 1)) / columns);
+            var visibleCount = 0;
+            var visibleCards = [];
+            group.cards.forEach(function(info) {
+                if (info.isVisible === false) {
+                    info.virtualVisibleIndex = -1;
+                    return;
+                }
+                info.virtualVisibleIndex = visibleCount++;
+                visibleCards.push(info);
+            });
+            var rows = group.collapsed ? 0 : Math.ceil(visibleCount / columns);
+            var gridHeight = rows > 0 ? rows * cellHeight + (rows - 1) * rowGap : 0;
+            updates.push({
+                grid: grid,
+                group: group,
+                gridHeight: gridHeight,
+                metrics: {
+                    columns: columns,
+                    cellHeight: cellHeight,
+                    columnGap: columnGap,
+                    rowGap: rowGap,
+                    visibleCount: visibleCount,
+                    visibleCards: visibleCards,
+                    gridHeight: gridHeight
+                }
+            });
+        });
+        updates.forEach(function(update) {
+            var metrics = update.metrics;
+            update.grid.style.height = update.gridHeight + 'px';
+            update.grid.style.minHeight = '0';
+            update.grid.style.gridTemplateRows = metrics.visibleCount > 0
+                ? 'repeat(' + Math.ceil(metrics.visibleCount / metrics.columns) + ', ' + metrics.cellHeight + 'px)'
+                : 'none';
+            update.group.virtualMetrics = update.metrics;
+        });
+    }
+
+    function mountTimelineWindow(pane, range) {
+        if (!pane || !range) {
+            return;
+        }
+        var mounted = 0;
+        (pane.virtual.mountedGroups || []).forEach(function(group) {
+            var grid = group.$grid;
+            if (grid && grid.length > 0) {
+                grid.children().detach();
+            }
+        });
+        pane.virtual.mountedGroups = [];
+        var groups = pane.virtual.groups || [];
+        var lo = 0;
+        var hi = groups.length;
+        while (lo < hi) {
+            var mid = (lo + hi) >> 1;
+            if (groups[mid].endIndex < range.start) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        for (var groupIndex = lo; groupIndex < groups.length && groups[groupIndex].startIndex <= range.end; groupIndex += 1) {
+            var group = groups[groupIndex];
+            if (group.collapsed || !group.virtualMetrics || group.virtualMetrics.visibleCards.length === 0) {
+                continue;
+            }
+            var visibleCards = group.virtualMetrics.visibleCards;
+            var cardLo = 0;
+            var cardHi = visibleCards.length;
+            while (cardLo < cardHi) {
+                var cardMid = (cardLo + cardHi) >> 1;
+                if (visibleCards[cardMid].timelineIndex < range.start) {
+                    cardLo = cardMid + 1;
+                } else {
+                    cardHi = cardMid;
+                }
+            }
+            if (!visibleCards[cardLo] || visibleCards[cardLo].timelineIndex > range.end) {
+                continue;
+            }
+            var lastIndex = cardLo;
+            while (lastIndex + 1 < visibleCards.length && visibleCards[lastIndex + 1].timelineIndex <= range.end) {
+                lastIndex += 1;
+            }
+            var metrics = group.virtualMetrics;
+            var grid = group.$grid;
+            for (var visibleIndex = cardLo; visibleIndex <= lastIndex; visibleIndex += 1) {
+                var info = visibleCards[visibleIndex];
+                var cardEl = info.$el.get(0);
+                cardEl.style.gridRow = String(Math.floor(info.virtualVisibleIndex / metrics.columns) + 1);
+                cardEl.style.gridColumn = String((info.virtualVisibleIndex % metrics.columns) + 1);
+                grid.append(cardEl);
+                mounted += 1;
+            }
+            pane.virtual.mountedGroups.push(group);
+        }
+        pane.virtual.mountedRange = range;
+        pane.virtual.mountedCardCount = mounted;
+    }
+
+    function updateTimelineVirtualWindow(pane, force) {
+        if (!pane || !pane.virtual || pane.virtual.groups.length === 0) {
+            return false;
+        }
+        var center = timelineCenterIndex(pane);
+        var current = pane.virtual.mountedRange;
+        if (!force && current && center >= current.start + 50 && center <= current.end - 50) {
+            return false;
+        }
+        var nextRange = timelineWindow(pane, pane.cards.length, center);
+        if (!force && current && current.start === nextRange.start && current.end === nextRange.end) {
+            return false;
+        }
+        var scrollAnchor = captureTimelineScrollAnchor(pane);
+        mountTimelineWindow(pane, nextRange);
+        var timeline = pane.$timeline.get(0);
+        var anchorEl = scrollAnchor ? scrollAnchor.element : null;
+        if (timeline && anchorEl && anchorEl.isConnected) {
+            var timelineTop = timeline.getBoundingClientRect().top;
+            timeline.scrollTop += anchorEl.getBoundingClientRect().top - timelineTop - scrollAnchor.offset;
+        }
+        return true;
+    }
+
+    function refreshMountedTimelineRailPositions(pane) {
+        if (!pane || !pane.virtual || !pane.virtual.sortedTimeline || !pane.virtual.rail) {
+            return;
+        }
+        captureTimelineCardPositions(pane, pane.virtual.sortedTimeline);
+        var scrollYByID = new Map();
+        pane.virtual.sortedTimeline.forEach(function(item) {
+            scrollYByID.set(item.id, item.scrollY);
+        });
+        pane.virtual.rail.markers.forEach(function(marker) {
+            var scrollY = scrollYByID.get(marker.id);
+            if (Number.isFinite(scrollY)) {
+                marker.scrollY = scrollY;
+            }
+        });
+
+        var timeline = pane.$timeline.get(0);
+        var scrollable = timeline ? Math.max(1, timeline.scrollHeight - timeline.clientHeight) : 1;
+        var anchor = timelineRailAnchor(timeline);
+        pane.$rail.find('.timeline-rail-marker').each(function() {
+            var $marker = $(this);
+            var scrollY = scrollYByID.get(String($marker.attr('data-target-id') || ''));
+            if (!Number.isFinite(scrollY)) {
+                return;
+            }
+            $marker.attr('data-scroll-y', String(scrollY));
+            var top = Math.max(0, Math.min(1, (scrollY - anchor) / scrollable));
+            $marker.css('top', (top * 100) + '%');
+        });
+    }
+
+    function timelineCenterIndex(pane) {
+        var timeline = pane.$timeline.get(0);
+        var groups = pane.virtual.groups || [];
+        if (!timeline || groups.length === 0) {
+            return 0;
+        }
+        var targetY = timeline.scrollTop + timelineRailAnchor(timeline);
+        var lo = 0;
+        var hi = groups.length;
+        while (lo < hi) {
+            var mid = (lo + hi) >> 1;
+            var group = groups[mid];
+            if (group.virtualY <= targetY) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        var group = groups[Math.max(0, lo - 1)] || groups[0];
+        if (!group || group.cards.length === 0) {
+            return Math.max(0, group ? group.startIndex : 0);
+        }
+        if (group.collapsed) {
+            return group.startIndex;
+        }
+        var grid = group.$grid && group.$grid.get(0);
+        var gridY = grid ? group.virtualGridY : targetY;
+        var metrics = group.virtualMetrics || { columns: 1, cellHeight: 128, rowGap: 12 };
+        if (metrics.visibleCount <= 0) {
+            return group.startIndex;
+        }
+        var row = Math.max(0, Math.floor((targetY - gridY) / (metrics.cellHeight + metrics.rowGap)));
+        var visibleIndex = Math.min(metrics.visibleCount - 1, row * metrics.columns + Math.floor(metrics.columns / 2));
+        var centerInfo = metrics.visibleCards[visibleIndex];
+        return centerInfo ? centerInfo.timelineIndex : group.startIndex;
+    }
+
+    function buildTimelineRailModel(sortedTimeline) {
+        if (!sortedTimeline || sortedTimeline.length === 0) {
+            return {
+                minMs: 0,
+                maxMs: 0,
+                majorUnit: 'day',
+                markers: []
+            };
+        }
+        var minMs = sortedTimeline[0].ms;
+        var maxMs = sortedTimeline[sortedTimeline.length - 1].ms;
+        var spanDays = (maxMs - minMs) / (24 * 60 * 60 * 1000);
+        var majorUnit = 'day';
+        var minorUnit = 'hour';
+        if (spanDays >= 365 * 3) {
+            majorUnit = 'year';
+            minorUnit = 'month';
+        } else if (spanDays >= 120) {
+            majorUnit = 'month';
+            minorUnit = 'week';
+        } else if (spanDays >= 35) {
+            majorUnit = 'week';
+            minorUnit = 'day';
+        } else if (spanDays >= 10) {
+            majorUnit = 'day';
+            minorUnit = 'day-half';
+        } else {
+            majorUnit = 'day';
+            minorUnit = 'hour';
+        }
+
+        var seenMajor = {};
+        var seenMinor = {};
+        var majorMarkers = [];
+        var minorMarkers = [];
+        sortedTimeline.forEach(function(item) {
+            var majorKey = markerBucketKey(item.ms, majorUnit);
+            if (!seenMajor[majorKey]) {
+                seenMajor[majorKey] = true;
+                var markerItem = item;
+                majorMarkers.push({
+                    kind: 'major',
+                    id: markerItem.id,
+                    ms: item.ms,
+                    scrollY: item.scrollY,
+                    label: markerLabel(item.ms, majorUnit)
+                });
+            }
+            var minorKey = markerBucketKey(item.ms, minorUnit);
+            if (!seenMinor[minorKey] && !seenMajor[minorKey]) {
+                seenMinor[minorKey] = true;
+                minorMarkers.push({
+                    kind: 'minor',
+                    id: item.id,
+                    ms: item.ms,
+                    scrollY: item.scrollY,
+                    label: ''
+                });
+            }
+        });
+
+        if (minorMarkers.length > 90) {
+            var step = Math.ceil(minorMarkers.length / 90);
+            minorMarkers = minorMarkers.filter(function(_, idx) {
+                return idx % step === 0;
+            });
+        }
+        return {
+            minMs: minMs,
+            maxMs: maxMs,
+            majorUnit: majorUnit,
+            markers: majorMarkers.concat(minorMarkers).sort(function(a, b) {
+                return a.ms - b.ms;
+            })
+        };
+    }
+
+    function markerBucketKey(ms, unit) {
+        var d = new Date(ms);
+        var y = d.getUTCFullYear();
+        var m = d.getUTCMonth() + 1;
+        var day = d.getUTCDate();
+        var h = d.getUTCHours();
+        if (unit === 'year') {
+            return String(y);
+        }
+        if (unit === 'month') {
+            return y + '-' + pad2(m);
+        }
+        if (unit === 'week') {
+            return y + '-w' + isoWeekUTC(d);
+        }
+        if (unit === 'day-half') {
+            return y + '-' + pad2(m) + '-' + pad2(day) + '-' + (h < 12 ? 'am' : 'pm');
+        }
+        if (unit === 'hour') {
+            return y + '-' + pad2(m) + '-' + pad2(day) + 'T' + pad2(h);
+        }
+        return y + '-' + pad2(m) + '-' + pad2(day);
+    }
+
+    function markerLabel(ms, unit) {
+        var d = new Date(ms);
+        if (unit === 'year') {
+            return String(d.getUTCFullYear());
+        }
+        if (unit === 'month') {
+            return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' });
+        }
+        if (unit === 'week') {
+            return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+        }
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    }
+
+    function isoWeekUTC(d) {
+        var date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+        var dayNum = date.getUTCDay() || 7;
+        date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+        var yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+        return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    }
+
+    function renderTimelineRail(pane) {
+        if (!pane || !pane.$rail || pane.$rail.length === 0) {
+            return;
+        }
+        var mode = paneViewMode[pane.side] === 'preview' ? 'preview' : 'thumbs';
+        var rail = pane.virtual.rail;
+        if (!rail || !rail.markers || rail.markers.length === 0 || mode !== 'thumbs') {
+            pane.$rail.prop('hidden', true);
+            return;
+        }
+        var timeline = pane.$timeline.get(0);
+        var scrollable = timeline ? Math.max(1, timeline.scrollHeight - timeline.clientHeight) : 1;
+        var $container = pane.$rail.find('[data-rail-markers]').first();
+        $container.empty();
+        rail.markers.forEach(function(marker) {
+            var targetScrollY = Math.max(0, marker.scrollY - timelineRailAnchor(timeline));
+            var top = Math.max(0, Math.min(1, targetScrollY / scrollable));
+            var $marker = $('<button type="button" class="timeline-rail-marker"></button>');
+            $marker.toggleClass('is-major', marker.kind === 'major');
+            $marker.toggleClass('is-minor', marker.kind !== 'major');
+            $marker.css('top', (top * 100) + '%');
+            $marker.attr('data-target-id', marker.id);
+            $marker.attr('data-scroll-y', String(marker.scrollY));
+            if (marker.kind === 'major') {
+                $marker.append($('<span class="timeline-rail-marker-label"></span>').text(marker.label));
+            }
+            $container.append($marker);
+        });
+        pane.$rail.prop('hidden', false);
+    }
+
+    function updateTimelineRailCurrentMarker(pane) {
+        if (!pane || !pane.$rail || pane.$rail.length === 0 || pane.$timeline.length === 0) {
+            return;
+        }
+        if (pane.$rail.prop('hidden')) {
+            return;
+        }
+        var rail = pane.virtual.rail;
+        if (!rail || !rail.markers || rail.markers.length === 0) {
+            return;
+        }
+        var timelineEl = pane.$timeline.get(0);
+        if (!timelineEl) {
+            return;
+        }
+        var scrollable = Math.max(1, timelineEl.scrollHeight - timelineEl.clientHeight);
+        var ratio = Math.max(0, Math.min(1, timelineEl.scrollTop / scrollable));
+        var targetY = timelineEl.scrollTop + timelineRailAnchor(timelineEl);
+        var currentItem = timelineItemAtAnchor(pane, targetY);
+        var ms = currentItem ? currentItem.ms : rail.minMs;
+        pane.virtual.currentTimeSourceItem = currentItem || null;
+        var $current = pane.$rail.find('[data-rail-current]').first();
+        $current.css('top', (ratio * 100) + '%');
+        pane.$rail.find('[data-rail-current-label]').first().text(markerLabel(ms, rail.majorUnit));
+        syncTimelineCurrentDebug(pane, currentItem, localStorage.getItem('dev-mode') === 'true');
+    }
+
+    function timelineItemAtAnchor(pane, targetY) {
+        var groups = pane.virtual.groups || [];
+        var lo = 0;
+        var hi = groups.length;
+        while (lo < hi) {
+            var mid = (lo + hi) >> 1;
+            if (groups[mid].virtualY <= targetY) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        var groupIndex = Math.max(0, lo - 1);
+        var group = groups[groupIndex];
+        while (group && (!group.timelineItems || group.timelineItems.length === 0) && groupIndex > 0) {
+            group = groups[--groupIndex];
+        }
+        if (!group || !group.timelineItems || group.timelineItems.length === 0) {
+            for (var nextIndex = groupIndex + 1; nextIndex < groups.length; nextIndex += 1) {
+                if (groups[nextIndex].timelineItems && groups[nextIndex].timelineItems.length > 0) {
+                    group = groups[nextIndex];
+                    break;
+                }
+            }
+        }
+        if (!group || !group.timelineItems || group.timelineItems.length === 0) {
+            return null;
+        }
+
+        var items = group.timelineItems;
+        lo = 0;
+        hi = items.length;
+        while (lo < hi) {
+            var itemMid = (lo + hi) >> 1;
+            if (items[itemMid].scrollY <= targetY) {
+                lo = itemMid + 1;
+            } else {
+                hi = itemMid;
+            }
+        }
+        var itemIndex = Math.max(0, lo - 1);
+        var currentItem = items[itemIndex];
+        while (itemIndex > 0 && items[itemIndex - 1].scrollY === currentItem.scrollY) {
+            currentItem = items[--itemIndex];
+        }
+        return currentItem;
+    }
+
+    function syncTimelineCurrentDebug(pane, item, enabled) {
+        if (!pane || !pane.$pane || pane.$pane.length === 0) {
+            return;
+        }
+        if (!pane.virtual.$currentTimeDebugLine || pane.virtual.$currentTimeDebugLine.length === 0) {
+            var $mediaView = pane.$pane.find('.pane-media-view').first();
+            if ($mediaView.length > 0) {
+                pane.virtual.$currentTimeDebugLine = $('<div class="timeline-dev-current-line" hidden><span>date anchor</span></div>');
+                $mediaView.append(pane.virtual.$currentTimeDebugLine);
+            }
+        }
+        var $line = pane.virtual.$currentTimeDebugLine;
+        if (!enabled || !item || !pane.$rail || pane.$rail.prop('hidden')) {
+            $line.prop('hidden', true);
+            if (pane.virtual.currentTimeSourceEl) {
+                $(pane.virtual.currentTimeSourceEl).removeClass('is-rail-current-source');
+                pane.virtual.currentTimeSourceEl = null;
+            }
+            return;
+        }
+        var timeline = pane.$timeline.get(0);
+        var mediaView = pane.$pane.find('.pane-media-view').first().get(0);
+        if (timeline && mediaView) {
+            var timelineRect = timeline.getBoundingClientRect();
+            var mediaViewRect = mediaView.getBoundingClientRect();
+            var lineTop = timelineRect.top - mediaViewRect.top + timelineRailAnchor(timeline);
+            $line.css('top', lineTop + 'px');
+        }
+
+        var sourceEl = item.info && item.info.$el ? item.info.$el.get(0) : null;
+        if (pane.virtual.currentTimeSourceEl !== sourceEl) {
+            if (pane.virtual.currentTimeSourceEl) {
+                $(pane.virtual.currentTimeSourceEl).removeClass('is-rail-current-source');
+            }
+            pane.virtual.currentTimeSourceEl = sourceEl;
+        }
+        if (sourceEl) {
+            var basename = String(item.info.baseName || $(sourceEl).attr('data-basename') || 'photo');
+            var localTime = String($(sourceEl).attr('data-exif-time') || 'unknown time');
+            $(sourceEl).addClass('is-rail-current-source');
+            $line.find('span').text('date anchor: ' + basename);
+            $line.attr('title', 'Timeline date source: ' + basename + ' (' + localTime + ')');
+        } else {
+            $line.find('span').text('date anchor');
+            $line.attr('title', 'Date source is not mounted');
+        }
+        $line.prop('hidden', false);
+    }
+
+    function scrollPaneToCardID(pane, id) {
+        var info = cardInfoByID(pane, id);
+        if (!info || !info.$el || pane.$timeline.length === 0) {
+            return;
+        }
+        var cardEl = info.$el.get(0);
+        var timelineEl = pane.$timeline.get(0);
+        if (!cardEl || !timelineEl) {
+            return;
+        }
+        var marker = pane.virtual.rail && pane.virtual.rail.markers.find(function(item) {
+            return item.id === id;
+        });
+        var contentY = marker ? marker.scrollY : timelineYForCard(pane, info);
+        var top = Math.max(0, contentY - timelineRailAnchor(timelineEl));
+        pane.virtual.pendingRailScrollID = id;
+        timelineEl.scrollTop = top;
+        scheduleTimelineRailTick(pane);
+    }
+
+    function timelineYForCard(pane, info) {
+        var group = info && info.group;
+        var timeline = pane && pane.$timeline ? pane.$timeline.get(0) : null;
+        var groupEl = group && group.$el ? group.$el.get(0) : null;
+        var grid = group && group.$grid ? group.$grid.get(0) : null;
+        if (!timeline || !groupEl) {
+            return 0;
+        }
+        var groupY = Number.isFinite(group.virtualY) ? group.virtualY : groupEl.offsetTop;
+        if (groupEl.classList.contains('is-collapsed') || !grid) {
+            return groupY;
+        }
+        var gridY = Number.isFinite(group.virtualGridY) ? group.virtualGridY : groupY;
+        var metrics = group.virtualMetrics || { columns: 1, cellHeight: 128, rowGap: 12 };
+        var row = Math.floor(Math.max(0, info.virtualVisibleIndex) / metrics.columns);
+        return gridY + row * (metrics.cellHeight + metrics.rowGap);
+    }
+
+    function timelineRailAnchor(timeline) {
+        return timeline ? Math.round(timeline.clientHeight * 0.35) : 0;
+    }
+
+    function ensureTimelineRailTailSpace(pane, minScrollTop) {
+        var timeline = pane && pane.$timeline ? pane.$timeline.get(0) : null;
+        if (!timeline) {
+            return;
+        }
+        // Keep the final date marker alignable with the same viewport anchor as every other marker.
+        var tail = Math.ceil(timeline.clientHeight * 0.65);
+        timeline.style.setProperty('--timeline-rail-tail', tail + 'px');
+        if (Number.isFinite(minScrollTop)) {
+            var maxScrollTop = Math.max(0, timeline.scrollHeight - timeline.clientHeight);
+            if (minScrollTop > maxScrollTop) {
+                tail += Math.ceil(minScrollTop - maxScrollTop) + 1;
+                timeline.style.setProperty('--timeline-rail-tail', tail + 'px');
+            }
+        }
+    }
+
+    function ensureTimelineRailTailForMarkers(pane) {
+        var timeline = pane && pane.$timeline ? pane.$timeline.get(0) : null;
+        var markers = pane && pane.virtual && pane.virtual.rail ? pane.virtual.rail.markers : [];
+        if (!timeline || !markers || markers.length === 0) {
+            return;
+        }
+        var lastMarkerY = markers.reduce(function(maxY, marker) {
+            return Math.max(maxY, marker.scrollY);
+        }, 0);
+        ensureTimelineRailTailSpace(pane, Math.max(0, lastMarkerY - timelineRailAnchor(timeline)));
     }
 
     function buildGroups(pane, cards, mode, sessionMin) {
@@ -1650,19 +2723,23 @@ $(function() {
             return;
         }
         var $card = best.info.$el;
-        panes.reference.$pane.find('.photo-card').removeClass('is-selected');
+        panes.reference.cards.forEach(function(info) {
+            info.$el.removeClass('is-selected is-selection-anchor');
+        });
         $card.addClass('is-selected');
+        setPaneSelectionAnchor(panes.reference, $card);
         updatePaneMetadataFromCard(panes.reference.$pane, $card);
         syncSelectionOutlineState();
         syncPaneMap(panes.reference.$pane);
         syncPaneViews();
-        var cardEl = $card.get(0);
-        if (cardEl && typeof cardEl.scrollIntoView === 'function') {
-            cardEl.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
-        }
+        scrollPaneToCardID(panes.reference, best.info.id);
     }
 
     function applyLensHighlightState() {
+        var refreshVirtualVisibility = !!(
+            panes.target.virtual.hasHiddenCards || panes.reference.virtual.hasHiddenCards ||
+            lensSettings.unsaved.hide || lensSettings['missing-gps'].hide || lensSettings['missing-gps-time'].hide
+        );
         $('body')
             .toggleClass('lens-unsaved-hide-active', !!lensSettings.unsaved.hide)
             .toggleClass('lens-missing-gps-hide-active', !!lensSettings['missing-gps'].hide)
@@ -1720,6 +2797,17 @@ $(function() {
             info.isVisible = true;
         });
 
+        if (refreshVirtualVisibility) {
+            [panes.target, panes.reference].forEach(function(pane) {
+                pane.virtual.hasHiddenCards = pane.cards.some(function(info) {
+                    return info.isVisible === false;
+                });
+                if (pane.virtual.groups.length > 0) {
+                    refreshPaneTimelineRail(pane);
+                }
+            });
+        }
+
         syncSelectionOutlineState();
         updateSaveButtonVisibility();
     }
@@ -1753,7 +2841,9 @@ $(function() {
     }
 
     function updateReferenceNeighborHighlightForSelection() {
-        panes.reference.$pane.find('.photo-card').removeClass('ref-before-highlight ref-after-highlight');
+        panes.reference.cards.forEach(function(info) {
+            info.$el.removeClass('ref-before-highlight ref-after-highlight');
+        });
         var $selectedTarget = activeTargetCard();
         if ($selectedTarget.length === 0) {
             return;
@@ -1850,6 +2940,7 @@ $(function() {
             return;
         }
         var $panel = $pane.find('.metadata-panel').first();
+        $panel.attr('data-metadata-mode', mode);
         $panel.find('.metadata-toggle-btn').removeClass('is-active');
         $panel.find('.metadata-toggle-btn[data-mode="' + mode + '"]').addClass('is-active');
         $panel.find('.metadata-secondary-panel').removeClass('is-active');
@@ -1877,6 +2968,7 @@ $(function() {
 
     function syncPaneMap($pane) {
         var mapState = ensurePaneMap($pane);
+        syncMapCoordinateControls();
         if (!mapState) {
             return;
         }
@@ -1895,6 +2987,18 @@ $(function() {
             }
             updatePaneMap(mapState, defaultMapView, defaultMapZoom);
         }
+    }
+
+    function syncMapCoordinateControls() {
+        $('[data-action="copy-map-coordinates"]').each(function() {
+            var $pane = $(this).closest('.pane');
+            var pane = $pane.is(panes.reference.$pane) ? panes.reference : panes.target;
+            var $card = pane.side === 'target' ? activeTargetCard() : selectedCardForPane($pane);
+            var lat = parseFloat($card.attr('data-gps-lat'));
+            var lon = parseFloat($card.attr('data-gps-lon'));
+            $(this).prop('disabled', !Number.isFinite(lat) || !Number.isFinite(lon));
+        });
+        $('[data-action="paste-map-coordinates"]').prop('disabled', !gpsCoordinateClipboard);
     }
 
     function ensurePaneMap($pane) {
@@ -2285,14 +3389,20 @@ $(function() {
     }
 
     function selectedCardForPane($pane) {
-        return $pane.find('.photo-card.is-selected').first();
+        var pane = $pane.is(panes.reference.$pane) ? panes.reference : panes.target;
+        for (var i = 0; i < pane.cards.length; i += 1) {
+            if (pane.cards[i].$el.hasClass('is-selected')) {
+                return pane.cards[i].$el;
+            }
+        }
+        return $();
     }
 
     function activeTargetCard() {
         if (targetSelectionAnchorID) {
-            var $anchor = panes.target.$pane.find('.photo-card[data-photo-id="' + targetSelectionAnchorID + '"]').first();
-            if ($anchor.length > 0 && $anchor.hasClass('is-selected')) {
-                return $anchor;
+            var anchorInfo = cardInfoByID(panes.target, targetSelectionAnchorID);
+            if (anchorInfo && anchorInfo.$el.hasClass('is-selected')) {
+                return anchorInfo.$el;
             }
         }
         var $selected = selectedCardForPane(panes.target.$pane);
@@ -2303,29 +3413,31 @@ $(function() {
     }
 
     function selectedTargetInfos() {
-        var selectedIDs = {};
-        panes.target.$pane.find('.photo-card.is-selected').each(function() {
-            selectedIDs[String($(this).data('photoId') || '')] = true;
-        });
         return panes.target.cards.filter(function(info) {
-            return !!selectedIDs[info.id];
+            return info.$el.hasClass('is-selected');
         });
     }
 
     function setTargetSelectionAnchor($card) {
         if (!$card || $card.length === 0) {
             targetSelectionAnchorID = '';
-            panes.target.$pane.find('.photo-card').removeClass('is-selection-anchor');
+            panes.target.cards.forEach(function(info) {
+                info.$el.removeClass('is-selection-anchor');
+            });
             return;
         }
         targetSelectionAnchorID = String($card.data('photoId') || '');
-        panes.target.$pane.find('.photo-card').removeClass('is-selection-anchor');
+        panes.target.cards.forEach(function(info) {
+            info.$el.removeClass('is-selection-anchor');
+        });
         $card.addClass('is-selection-anchor');
     }
 
     function collapseTargetSelectionToAnchor() {
         var $anchor = activeTargetCard();
-        panes.target.$pane.find('.photo-card').removeClass('is-selected is-selection-anchor');
+        panes.target.cards.forEach(function(info) {
+            info.$el.removeClass('is-selected is-selection-anchor');
+        });
         if ($anchor.length > 0) {
             $anchor.addClass('is-selected');
             setTargetSelectionAnchor($anchor);
@@ -2335,51 +3447,88 @@ $(function() {
         syncPaneViews();
     }
 
-    function updateTargetImageScopeSelection($card, evt) {
-        var $pane = panes.target.$pane;
+    function paneSelectionAnchorID(pane) {
+        return pane.side === 'target' ? targetSelectionAnchorID : referenceSelectionAnchorID;
+    }
+
+    function setPaneSelectionAnchor(pane, $card) {
+        if (pane.side === 'target') {
+            setTargetSelectionAnchor($card);
+            return;
+        }
+        if (!$card || $card.length === 0) {
+            referenceSelectionAnchorID = '';
+            pane.cards.forEach(function(info) {
+                info.$el.removeClass('is-selection-anchor');
+            });
+            return;
+        }
+        referenceSelectionAnchorID = String($card.data('photoId') || '');
+        pane.cards.forEach(function(info) {
+            info.$el.removeClass('is-selection-anchor');
+        });
+        $card.addClass('is-selection-anchor');
+    }
+
+    function updatePaneImageSelection(pane, $card, evt) {
+        var $pane = pane.$pane;
         var clickedID = String($card.data('photoId') || '');
         var useRange = !!(evt && evt.shiftKey);
         var useAdd = !!(evt && (evt.ctrlKey || evt.metaKey));
 
         if (useRange) {
-            var clickedInfo = cardInfoByID(panes.target, clickedID);
+            var clickedInfo = cardInfoByID(pane, clickedID);
             var anchorInfo = null;
             if (!clickedInfo) {
                 return;
             }
-            if (targetSelectionAnchorID) {
-                anchorInfo = cardInfoByID(panes.target, targetSelectionAnchorID);
+            var anchorID = paneSelectionAnchorID(pane);
+            if (anchorID) {
+                anchorInfo = cardInfoByID(pane, anchorID);
             }
 
             if (!useAdd) {
-                $pane.find('.photo-card').removeClass('is-selected is-selection-anchor');
+                pane.cards.forEach(function(info) {
+                    info.$el.removeClass('is-selected is-selection-anchor');
+                });
             }
             if (!anchorInfo) {
                 $card.addClass('is-selected');
-                setTargetSelectionAnchor($card);
+                setPaneSelectionAnchor(pane, $card);
                 return;
             }
 
             var start = Math.min(anchorInfo.index, clickedInfo.index);
             var end = Math.max(anchorInfo.index, clickedInfo.index);
-            panes.target.cards.forEach(function(info) {
+            pane.cards.forEach(function(info) {
                 if (info.index >= start && info.index <= end) {
                     info.$el.addClass('is-selected');
                 }
             });
-            setTargetSelectionAnchor($card);
+            anchorInfo.$el.addClass('is-selection-anchor');
             return;
         }
 
         if (useAdd) {
-            $card.addClass('is-selected');
-            setTargetSelectionAnchor($card);
+            var wasSelected = $card.hasClass('is-selected');
+            $card.toggleClass('is-selected', !wasSelected);
+            if (!paneSelectionAnchorID(pane)) {
+                setPaneSelectionAnchor(pane, $card);
+            } else if (wasSelected && paneSelectionAnchorID(pane) === clickedID) {
+                var replacement = pane.cards.find(function(info) {
+                    return info.$el.hasClass('is-selected');
+                });
+                var $replacementAnchor = replacement ? replacement.$el : $();
+                setPaneSelectionAnchor(pane, $replacementAnchor);
+            }
             return;
         }
 
-        $pane.find('.photo-card').removeClass('is-selected is-selection-anchor');
+        pane.cards.forEach(function(info) {
+            info.$el.removeClass('is-selected is-selection-anchor');
+        });
         $card.addClass('is-selected');
-        setTargetSelectionAnchor($card);
+        setPaneSelectionAnchor(pane, $card);
     }
 
     function cardInfoByID(pane, id) {
@@ -2428,7 +3577,7 @@ $(function() {
 
     function displayTimelineMsForPane(pane, $card) {
         displayTimelineMsCallCount += 1;
-        var localMs = currentCardExifMs($card);
+        var localMs = localExifTimelineMs($card.attr('data-exif-time'));
         var view = String(pane.view || 'local');
         if (view === 'local') {
             return localMs;
@@ -2449,7 +3598,7 @@ $(function() {
 
     function displayTimelineMsForInfoModel(pane, info) {
         var model = info && info.model ? info.model : null;
-        var localMs = currentExifMsForInfoModel(info);
+        var localMs = localExifTimelineMs(model && model.exif_time);
         var view = String(pane.view || 'local');
         if (view === 'local') {
             return localMs;
@@ -2651,8 +3800,8 @@ $(function() {
     function applyTimezoneFix() {
         var scope = String($('#scope').val() || 'global');
         var targetCards = targetCardsForScope(scope);
-        if ((scope === 'image' || scope === 'session') && targetCards.length === 0) {
-            $('#sync-status').text('Select a target image for image/session time scope.');
+        if ((scope === 'image' || scope === 'group') && targetCards.length === 0) {
+            $('#sync-status').text('Select a target image for image/group time scope.');
             return;
         }
 
@@ -2798,8 +3947,8 @@ $(function() {
     function setGPSTimeFromLocalTime() {
         var scope = String($('#scope').val() || 'global');
         var targetCards = targetCardsForScope(scope);
-        if ((scope === 'image' || scope === 'session') && targetCards.length === 0) {
-            $('#sync-status').text('Select a target image for image/session time scope.');
+        if ((scope === 'image' || scope === 'group') && targetCards.length === 0) {
+            $('#sync-status').text('Select a target image for image/group time scope.');
             return;
         }
 
@@ -3145,7 +4294,7 @@ $(function() {
         $('#exif-modal-path').text(path || '').prop('hidden', !path);
         $('#exif-modal-body').html(bodyHTML || '');
         $('#expand-all-exif, #collapse-all-exif').prop('hidden', !showTreeActions);
-        $modal.removeClass('is-map-browser');
+        $modal.removeClass('is-map-browser is-image-detail');
         $modal.toggleClass('is-compact', !!compact);
         if (extraClass) {
             $modal.addClass(extraClass);
@@ -3157,10 +4306,30 @@ $(function() {
         modalBackdropPointerDown = false;
         destroyGeoLookupModalMap();
         $('#exif-modal').prop('hidden', true);
-        $('#exif-modal .exif-modal').removeClass('is-compact is-map-browser');
+        $('#exif-modal .exif-modal').removeClass('is-compact is-map-browser is-image-detail');
         $('#exif-modal-path').text('');
         $('#exif-modal-body').empty();
         $('#expand-all-exif, #collapse-all-exif').prop('hidden', false);
+    }
+
+    function showPhotoDetailModal(pane, $card) {
+        var path = previewSourcePathForCard(pane, $card);
+        var basename = String($card.attr('data-basename') || 'Selected image');
+        if (!path) {
+            showModalFrame(basename, '', '<div class="exif-modal-status">Image path is missing.</div>', false, false, 'is-image-detail');
+            return;
+        }
+        showModalFrame(basename, path, '', false, false, 'is-image-detail');
+        var $image = $('<img class="photo-detail-image">').attr({
+            src: imageURLForPath(path),
+            alt: basename
+        });
+        $image.on('error', function() {
+            $('#exif-modal-body').empty().append(
+                $('<div class="exif-modal-status"></div>').text('Failed to load image preview.')
+            );
+        });
+        $('#exif-modal-body').append($image);
     }
 
     function setAllExifTreeNodesExpanded(expanded) {

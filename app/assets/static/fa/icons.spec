@@ -57,6 +57,7 @@ fa-regular fa-clock
 fa-solid fa-clock-rotate-left
 fa-regular fa-handshake
 fa-regular fa-copy
+fa-solid fa-paste
 fa-solid fa-trash-can
 fa-solid fa-table-list
 fa-solid fa-sort
@@ -71,4 +72,5 @@ fa-regular fa-object-group
 fa-solid fa-marker
 fa-solid fa-map-location-dot
 fa-solid fa-expand
+fa-solid fa-download
 fa-regular fa-folder-open

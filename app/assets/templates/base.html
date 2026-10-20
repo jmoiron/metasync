@@ -16,6 +16,7 @@
     <script src="/static/vendor/js/jquery.js"></script>
     <script src="/static/vendor/js/leaflet.js"></script>
     <script src="/static/js/utils.js" defer></script>
+    <script src="/static/js/virtual/timeline-window.js" defer></script>
     <script src="/static/js/progress.js" defer></script>
     <script src="/static/js/directory-browser.js" defer></script>
     <script src="/static/js/app.js" defer></script>
@@ -27,9 +28,11 @@
             <div class="timeline-group-header">
                 <div class="timeline-group-meta">
                     <button type="button" class="timeline-group-title"></button>
+                    <span class="timeline-group-separator" data-group-date-separator aria-hidden="true">·</span>
                     <a href="#" class="timeline-group-jump" hidden></a>
+                    <span class="timeline-group-separator" aria-hidden="true">·</span>
+                    <div class="timeline-group-count"></div>
                 </div>
-                <div class="timeline-group-count"></div>
             </div>
             <div class="thumb-grid"></div>
         </div>
