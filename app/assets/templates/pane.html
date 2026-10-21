@@ -33,6 +33,19 @@
             {{end}}
         </div>
         <div class="pane-header-actions">
+            {{if eq .pane.SectionSide "right"}}
+            <div class="gps-log-pane-actions">
+                <button type="button" class="directory-browser-gear" data-ref-gps-log-toggle aria-expanded="false" title="Reference actions" aria-label="Reference actions">
+                    <span class="fa-solid fa-gear" aria-hidden="true"></span>
+                </button>
+                <div class="directory-browser-menu gps-log-pane-menu" data-ref-gps-log-menu hidden>
+                    <strong class="gps-log-pane-menu-title">GPS Log</strong>
+                    <button type="button" class="gps-log-pane-menu-action" data-ref-gps-log-add disabled>Add selected (0)</button>
+                    <button type="button" class="gps-log-pane-menu-action" data-ref-gps-log-add-all>Add all</button>
+                    <span class="gps-log-pane-menu-status" data-ref-gps-log-status aria-live="polite"></span>
+                </div>
+            </div>
+            {{end}}
             <a href="#" class="pane-header-action-link" data-pane-preview-download hidden title="Download original image" aria-label="Download original image">
                 <span class="fa-solid fa-download" aria-hidden="true"></span>
             </a>
@@ -113,6 +126,9 @@
                     </div>
                     <div class="metadata-secondary-panel" data-panel="map">
                         <div class="map-panel">
+                            <a href="#" class="map-expand-link" data-action="expand-map" title="open a larger map search" aria-label="open a larger map search">
+                                <span class="fa-solid fa-expand" aria-hidden="true"></span>
+                            </a>
                             <div class="map-canvas" data-map-canvas></div>
                         </div>
                     </div>

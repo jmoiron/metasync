@@ -1,0 +1,319 @@
+.brand-lockup {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.header-dropdown.mode-menu {
+    display: grid;
+    gap: 0.35rem;
+    min-width: 10rem;
+}
+
+.mode-menu-item {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    padding: 0.45rem 0.55rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.mode-menu-item:hover,
+.mode-menu-item.is-active {
+    color: var(--text);
+    background: var(--hover-bg);
+}
+
+.workspace.is-gps-log {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.gps-log-workspace {
+    grid-column: 1 / -1;
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto auto minmax(12rem, 1fr) auto;
+    gap: 0.65rem;
+    padding: 0.75rem;
+}
+
+.gps-log-header,
+.gps-log-timeline-head {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.gps-log-header {
+    justify-content: space-between;
+}
+
+.gps-log-header h2 {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    margin: 0;
+    font-size: 1.05rem;
+}
+
+.gps-log-summary-meta {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 400;
+}
+
+.gps-log-timeline-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.gps-log-pane-actions {
+    position: relative;
+    z-index: 20;
+    display: inline-flex;
+}
+
+.gps-log-pane-menu {
+    min-width: 15rem;
+}
+
+.gps-log-pane-menu-title {
+    padding: 0.25rem 0.45rem 0.35rem;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.gps-log-pane-menu-action {
+    border: 0;
+    padding: 0.4rem 0.45rem;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+}
+
+.gps-log-pane-menu-action:hover:not(:disabled) {
+    background: var(--hover-bg);
+}
+
+.gps-log-pane-menu-action:disabled {
+    color: var(--muted);
+    cursor: default;
+}
+
+.gps-log-pane-menu-status {
+    padding: 0.2rem 0.45rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+    white-space: normal;
+}
+
+.gps-log-pane-menu-status.is-error {
+    color: var(--error, #d04c4c);
+}
+
+.gps-log-status {
+    min-height: 1.2rem;
+    color: var(--muted);
+    font-size: 0.82rem;
+}
+
+.gps-log-status.is-error {
+    color: var(--error, #d04c4c);
+}
+
+.gps-log-mode-picker {
+    position: relative;
+    flex: 0 0 auto;
+}
+
+.gps-log-mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.gps-log-mode-toggle:hover {
+    color: var(--accent);
+}
+
+.gps-log-mode-menu {
+    position: absolute;
+    z-index: 10000;
+    left: 0;
+    bottom: calc(100% + 0.45rem);
+    min-width: 9rem;
+    padding: 0.3rem;
+    border: 1px solid var(--border);
+    border-radius: 0.35rem;
+    background: var(--surface);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+.gps-log-mode-menu button {
+    display: block;
+    width: 100%;
+    padding: 0.45rem 0.6rem;
+    border: 0;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+}
+
+.gps-log-mode-menu button:hover,
+.gps-log-mode-menu button.is-active {
+    background: var(--hover-bg);
+}
+
+.gps-log-playback-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex: 0 0 auto;
+}
+
+.gps-log-playback-controls[hidden] {
+    display: none;
+}
+
+.gps-log-playback-window input {
+    width: 8rem;
+    min-height: 1.8rem;
+    padding: 0.2rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.8rem;
+}
+
+.gps-log-playback-window {
+    display: grid;
+    gap: 0.15rem;
+    color: var(--muted);
+    font-size: 0.68rem;
+}
+
+.gps-log-transport {
+    display: inline-grid;
+    width: 1.9rem;
+    height: 1.9rem;
+    place-items: center;
+    border: 0;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.gps-log-transport:hover {
+    background: var(--hover-bg);
+    color: var(--text);
+}
+
+.gps-log-transport.is-paused {
+    color: var(--accent);
+}
+
+.gps-log-playback-speed {
+    align-self: center;
+    color: var(--muted);
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+.gps-log-map {
+    min-height: 0;
+    border: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.gps-log-map-canvas {
+    pointer-events: none;
+}
+
+.gps-log-point-delete {
+    display: block;
+    margin-top: 0.5rem;
+    padding: 0.25rem 0.45rem;
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+}
+
+.gps-log-point-delete:hover {
+    background: var(--hover-bg);
+}
+
+.gps-log-timeline-panel {
+    position: relative;
+    z-index: 1200;
+    min-width: 0;
+    padding: 0.45rem 0.6rem 0.25rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.gps-log-timeline-head {
+    min-height: 2rem;
+}
+
+.gps-log-timeline-head > [data-gps-log-range-label] {
+    flex: 1;
+    color: var(--muted);
+    font-size: 0.78rem;
+}
+
+.gps-log-timeline {
+    display: block;
+    width: 100%;
+    height: 7.5rem;
+    touch-action: none;
+    cursor: crosshair;
+}
+
+.workspace.is-gps-log > .pane {
+    display: none;
+}
+
+body.is-gps-log .sync-mode-control {
+    display: none !important;
+}
+
+@media (max-width: 700px) {
+    .gps-log-workspace {
+        grid-template-rows: auto auto minmax(16rem, 1fr) auto;
+        padding: 0.5rem;
+    }
+
+    .gps-log-header,
+    .gps-log-timeline-head {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .gps-log-timeline-actions {
+        width: 100%;
+    }
+
+    .gps-log-playback-controls {
+        flex-wrap: wrap;
+    }
+}

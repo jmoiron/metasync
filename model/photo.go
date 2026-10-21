@@ -176,6 +176,17 @@ type Photo struct {
 	Exif         ExifData
 }
 
+type GPSLogEntry struct {
+	SourcePath    string    `json:"source_path"`
+	LocalDateTime string    `json:"local_datetime"`
+	Offset        string    `json:"offset,omitempty"`
+	UTCDateTime   time.Time `json:"utc_datetime"`
+	Latitude      float64   `json:"latitude"`
+	Longitude     float64   `json:"longitude"`
+}
+
+const GPSLogMinimumYear = 1975
+
 func (p Photo) Resolution() string {
 	return p.Exif.Resolution()
 }

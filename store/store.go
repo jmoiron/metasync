@@ -102,6 +102,22 @@ var imageMigrations = monarch.Set{
 			Up:   `ALTER TABLE images ADD COLUMN gps_time TEXT;`,
 			Down: ``,
 		},
+		{
+			Up: `CREATE TABLE IF NOT EXISTS gps_log_entries (
+				source_path TEXT PRIMARY KEY,
+				local_datetime TEXT NOT NULL,
+				utc_offset TEXT,
+				utc_datetime TEXT NOT NULL,
+				latitude REAL NOT NULL,
+				longitude REAL NOT NULL,
+				updated_at TEXT NOT NULL
+			);`,
+			Down: `DROP TABLE gps_log_entries;`,
+		},
+		{
+			Up:   `CREATE INDEX IF NOT EXISTS gps_log_utc_datetime ON gps_log_entries (utc_datetime);`,
+			Down: `DROP INDEX gps_log_utc_datetime;`,
+		},
 	},
 }
 

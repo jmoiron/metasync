@@ -1,5 +1,7 @@
 $(function() {
     var $workspace = $('[data-role="workspace"]');
+    var pendingProgress = {};
+    var pendingProgressIDs = [];
     if ($workspace.length === 0) {
         return;
     }
@@ -207,13 +209,18 @@ $(function() {
         if (!snap || !snap.task_id) {
             return;
         }
+        var matched = false;
         $workspace.find('[data-directory-selector]').each(function() {
             var $selector = $(this);
             if (String($selector.data('taskID') || '') !== String(snap.task_id || '')) {
                 return;
             }
+            matched = true;
             renderTaskProgress($selector, snap);
         });
+        if (!matched && hasPendingDirectoryLoad()) {
+            rememberPendingProgress(snap);
+        }
     });
 
     function loadDirectory($selector, path, fallbackError) {
@@ -392,7 +399,14 @@ $(function() {
             }
             return resp.json();
         }).then(function(data) {
-            $selector.data('taskID', String(data.task_id || ''));
+            var taskID = String(data.task_id || '');
+            $selector.data('taskID', taskID);
+            var earlyProgress = pendingProgress[taskID];
+            if (earlyProgress) {
+                delete pendingProgress[taskID];
+                pendingProgressIDs = pendingProgressIDs.filter(function(id) { return id !== taskID; });
+                renderTaskProgress($selector, earlyProgress);
+            }
         }).catch(function(err) {
             setDirectoryLoadingState($selector, false);
             $selector.data('pendingLoadPath', '');
@@ -476,6 +490,32 @@ $(function() {
             return secs + 's';
         }
         return mins + 'm' + secs + 's';
+    }
+
+    function hasPendingDirectoryLoad() {
+        var pending = false;
+        $workspace.find('[data-directory-selector]').each(function() {
+            var $selector = $(this);
+            if ($selector.data('pendingLoadPath') && !$selector.data('taskID')) {
+                pending = true;
+                return false;
+            }
+        });
+        return pending;
+    }
+
+    function rememberPendingProgress(snap) {
+        var taskID = String(snap.task_id || '');
+        if (!taskID) {
+            return;
+        }
+        if (!Object.prototype.hasOwnProperty.call(pendingProgress, taskID)) {
+            pendingProgressIDs.push(taskID);
+        }
+        pendingProgress[taskID] = snap;
+        while (pendingProgressIDs.length > 32) {
+            delete pendingProgress[pendingProgressIDs.shift()];
+        }
     }
 
     function navigateLoadedSelector($selector) {

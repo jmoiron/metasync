@@ -1,6 +1,7 @@
 @import "theme";
 @import "figtree";
 @import "directory-browser";
+@import "gps-log";
 
 * {
     box-sizing: border-box;
@@ -42,6 +43,8 @@ a:hover {
 }
 
 .topbar {
+    position: relative;
+    z-index: 1200;
     padding: 0.5rem;
     border-bottom: 1px solid var(--border);
     background: color-mix(in srgb, var(--surface) 88%, var(--hover-bg) 12%);
@@ -126,7 +129,7 @@ a:hover {
     position: absolute;
     width: fit-content;
     max-width: min(30rem, calc(100vw - 2.2rem));
-    z-index: 20;
+    z-index: 10000;
 }
 
 .settings-menu {

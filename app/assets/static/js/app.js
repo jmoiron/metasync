@@ -58,14 +58,23 @@ $(function() {
         target: buildPaneState($workspace.find('.pane[data-side="left"]'), 'target'),
         reference: buildPaneState($workspace.find('.pane[data-side="right"]'), 'reference')
     };
+    var gpsLogView = window.metasyncGPSLogView.create({
+        collectEntries: collectSelectedGPSLogEntries,
+        collectAllReferenceEntries: collectAllReferenceGPSLogEntries,
+        onStatus: function(message, isError) {
+            $('[data-ref-gps-log-status]').text(message).toggleClass('is-error', isError);
+        }
+    });
 
     applyTheme(localStorage.getItem('theme') || 'light');
     $('#dev-mode-toggle').prop('checked', localStorage.getItem('dev-mode') === 'true');
     updateDevPane();
+    updateGPSLogAddButton();
     initializeTimezoneSelectors();
     initializeScopeControl();
     bindBasicControls();
     bindHeaderMenus();
+    bindAppMode();
     bindPaneViewControls();
     bindPhotoSelection();
     bindMetadataToggle();
@@ -112,6 +121,8 @@ $(function() {
         syncPaneViews();
         updateDevPane();
     });
+    var initialMode = new URLSearchParams(window.location.search).get('mode') === 'gps-log' ? 'gps-log' : 'sync';
+    setAppMode(initialMode, false);
 
     function buildPaneState($pane, sideName) {
         var photoModelByID = parsePanePhotoModel($pane);
@@ -449,6 +460,106 @@ $(function() {
         });
     }
 
+    function bindAppMode() {
+        $(document).on('click', '[data-app-mode]', function() {
+            var mode = String($(this).attr('data-app-mode') || 'sync');
+            closeFloatingMenus();
+            setAppMode(mode, true);
+        });
+    }
+
+    function setAppMode(mode, updateURL) {
+        mode = mode === 'gps-log' ? 'gps-log' : 'sync';
+        var isGPSLog = mode === 'gps-log';
+        if (!isGPSLog && gpsLogView) {
+            gpsLogView.leave();
+        }
+        document.body.classList.toggle('is-gps-log', isGPSLog);
+        $workspace.toggleClass('is-gps-log', isGPSLog);
+        $workspace.find('[data-gps-log-workspace]').prop('hidden', !isGPSLog);
+        $('.mode-menu-item').each(function() {
+            var $item = $(this);
+            $item.toggleClass('is-active', String($item.attr('data-app-mode')) === mode);
+        });
+        if (updateURL) {
+            var url = new URL(window.location.href);
+            if (isGPSLog) {
+                url.searchParams.set('mode', mode);
+            } else {
+                url.searchParams.delete('mode');
+            }
+            window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+        }
+        if (isGPSLog) {
+            gpsLogView.enter();
+        } else {
+            window.requestAnimationFrame(function() {
+                [panes.target, panes.reference].forEach(function(pane) {
+                    if (!pane || !pane.virtual || !pane.virtual.groups || pane.virtual.groups.length === 0) {
+                        return;
+                    }
+                    var scrollAnchor = captureTimelineScrollAnchor(pane);
+                    updatePaneVirtualStateAndRail(pane, pane.virtual.groups, pane.virtual.mode, scrollAnchor);
+                });
+                updateDevPane();
+            });
+        }
+    }
+
+    function collectSelectedGPSLogEntries() {
+        var sources = [panes.target, panes.reference];
+        var infos = [];
+        sources.forEach(function(pane) {
+            pane.cards.forEach(function(info) {
+                if (info.$el.hasClass('is-selected')) {
+                    infos.push({ pane: pane, info: info });
+                }
+            });
+        });
+        return collectGPSLogEntries(infos);
+    }
+
+    function collectAllReferenceGPSLogEntries() {
+        var infos = panes.reference.cards.map(function(info) {
+            return { pane: panes.reference, info: info };
+        });
+        return collectGPSLogEntries(infos);
+    }
+
+    function collectGPSLogEntries(infos) {
+        var entries = [];
+        var skipped = 0;
+        infos.forEach(function(info) {
+            var pane = info.pane;
+            info = info.info;
+            var $card = info.$el;
+            var latitude = parseFloat(String($card.attr('data-gps-lat') || ''));
+            var longitude = parseFloat(String($card.attr('data-gps-lon') || ''));
+            var localTime = String($card.attr('data-exif-time') || '');
+            var offset = normalizeOffsetString(String($card.attr('data-exif-offset') || ''));
+            var gpsTime = Date.parse(String($card.attr('data-gps-time') || ''));
+            var timestamp = Number.isFinite(gpsTime) ? gpsTime : instantMsForCard($card, localTime, offset);
+            var sourcePath = info.sourcePath || previewSourcePathForCard(pane, $card);
+            if (!sourcePath || !Number.isFinite(latitude) || !Number.isFinite(longitude) || !localTime || localTime === 'n/a' || !Number.isFinite(timestamp)) {
+                skipped += 1;
+                return;
+            }
+            entries.push({
+                source_path: sourcePath,
+                local_datetime: localTime,
+                offset: offset,
+                utc_datetime: new Date(timestamp).toISOString(),
+                latitude: latitude,
+                longitude: longitude
+            });
+        });
+        return {
+            entries: entries,
+            skipped: skipped,
+            message: infos.length ? 'No eligible images could be added.' : 'No images to add.'
+        };
+    }
+
     function bindPhotoSelection() {
         $workspace.on('click', '.photo-card', function(evt) {
             var $card = $(this);
@@ -487,6 +598,37 @@ $(function() {
     }
 
     function bindPaneViewControls() {
+        $workspace.on('click', '[data-ref-gps-log-toggle]', function(evt) {
+            evt.preventDefault();
+            evt.stopPropagation();
+            var $button = $(this);
+            var $menu = $button.siblings('[data-ref-gps-log-menu]');
+            var opening = $menu.prop('hidden');
+            closeReferenceGPSLogMenu();
+            if (opening) {
+                $menu.prop('hidden', false);
+                $button.attr('aria-expanded', 'true').addClass('is-active');
+            }
+        });
+        $workspace.on('click', '[data-ref-gps-log-menu]', function(evt) {
+            evt.stopPropagation();
+        });
+        $workspace.on('click', '[data-ref-gps-log-add]', function() {
+            gpsLogView.addSelected();
+        });
+        $workspace.on('click', '[data-ref-gps-log-add-all]', function() {
+            gpsLogView.addAllReference();
+        });
+        $(document).on('click.ref-gps-log-menu', function(evt) {
+            if (!$(evt.target).closest('[data-ref-gps-log-menu], [data-ref-gps-log-toggle]').length) {
+                closeReferenceGPSLogMenu();
+            }
+        }).on('keydown.ref-gps-log-menu', function(evt) {
+            if (evt.key === 'Escape') {
+                closeReferenceGPSLogMenu();
+            }
+        });
+
         $workspace.on('click', '[data-pane-title-toggle]', function(evt) {
             evt.preventDefault();
             evt.stopPropagation();
@@ -519,6 +661,11 @@ $(function() {
             }
         });
         syncPaneTitleMenus();
+    }
+
+    function closeReferenceGPSLogMenu() {
+        $('[data-ref-gps-log-menu]').prop('hidden', true);
+        $('[data-ref-gps-log-toggle]').attr('aria-expanded', 'false').removeClass('is-active');
     }
 
     function setPaneViewMode(side, mode) {
@@ -578,7 +725,12 @@ $(function() {
         pane.$pane.find('[data-pane-title-path]').prop('hidden', mode === 'preview');
         pane.$pane.find('.pane-header-meta').prop('hidden', mode === 'preview');
         pane.$pane.find('.metadata-panel').prop('hidden', mode === 'preview');
-        pane.$pane.find('[data-timeline-rail]').prop('hidden', mode !== 'thumbs');
+        var rail = pane.virtual.rail;
+        var shouldShowRail = window.metasyncTimelineRail && window.metasyncTimelineRail.shouldShowRail;
+        var showRail = shouldShowRail
+            ? shouldShowRail(mode, pane.$timeline.length > 0, rail && rail.markers ? rail.markers.length : 0)
+            : mode === 'thumbs' && pane.$timeline.length > 0 && rail && rail.markers && rail.markers.length > 0;
+        pane.$pane.find('[data-timeline-rail]').prop('hidden', !showRail);
         if (mode === 'thumbs' && pane.virtual.viewMode !== 'thumbs' && pane.virtual.groups.length > 0) {
             window.requestAnimationFrame(function() {
                 refreshPaneTimelineRail(pane);
@@ -1129,6 +1281,7 @@ $(function() {
             updateReferenceNeighborHighlightForSelection();
             syncMetadataPanelState();
             syncPaneViews();
+            updateGPSLogAddButton();
             updateDevPane();
         });
     }
@@ -2838,6 +2991,17 @@ $(function() {
             }
             $summary.text(visible + ' of ' + total);
         });
+        updateGPSLogAddButton();
+    }
+
+    function updateGPSLogAddButton() {
+        var selected = selectedTargetInfos().length + panes.reference.cards.filter(function(info) {
+            return info.$el.hasClass('is-selected');
+        }).length;
+        $('[data-ref-gps-log-add]')
+            .prop('disabled', selected === 0)
+            .text('Add selected (' + selected + ')');
+        $('[data-ref-gps-log-add-all]').prop('disabled', panes.reference.cards.length === 0);
     }
 
     function updateReferenceNeighborHighlightForSelection() {

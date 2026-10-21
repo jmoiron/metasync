@@ -99,6 +99,9 @@
 .fa-arrow-right {
   --fa: "\f061";
 }
+.fa-backward {
+  --fa: "\f04a";
+}
 .fa-bars {
   --fa: "\f0c9";
 }
@@ -180,6 +183,9 @@
 .fa-floppy-disk {
   --fa: "\f0c7";
 }
+.fa-forward {
+  --fa: "\f04e";
+}
 .fa-gear {
   --fa: "\f013";
 }
@@ -219,11 +225,17 @@
 .fa-paste {
   --fa: "\f0ea";
 }
+.fa-pause {
+  --fa: "\f04c";
+}
 .fa-pen {
   --fa: "\f304";
 }
 .fa-pen-to-square {
   --fa: "\f044";
+}
+.fa-play {
+  --fa: "\f04b";
 }
 .fa-plug {
   --fa: "\f1e6";

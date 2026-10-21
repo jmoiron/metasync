@@ -73,4 +73,8 @@ fa-solid fa-marker
 fa-solid fa-map-location-dot
 fa-solid fa-expand
 fa-solid fa-download
+fa-solid fa-play
+fa-solid fa-pause
+fa-solid fa-backward
+fa-solid fa-forward
 fa-regular fa-folder-open

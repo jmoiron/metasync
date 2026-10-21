@@ -1,29 +1,34 @@
 <div class="app-shell">
     <header class="topbar">
         <div class="title-row">
-            <h1 id="app-title" title="Reconnect websocket">metasync</h1>
+            <div class="brand-lockup">
+                <button class="menu-link mode-menu-toggle" id="mode-toggle" type="button" data-menu-target="mode-menu" aria-expanded="false" aria-label="Choose mode" title="Choose mode">
+                    <span class="fa-solid fa-bars" aria-hidden="true"></span>
+                </button>
+                <h1 id="app-title" title="Reconnect websocket">metasync</h1>
+            </div>
             <div class="topbar-actions">
-                <button class="menu-link" id="scope-toggle" type="button" data-menu-target="scope-menu" aria-expanded="false">
+                <button class="menu-link sync-mode-control" id="scope-toggle" type="button" data-menu-target="scope-menu" aria-expanded="false">
                     <span class="fa-solid fa-star-of-life" id="scope-toggle-icon" aria-hidden="true"></span>
                     <span>Scope</span>
                 </button>
-                <button class="menu-link" id="group-toggle" type="button" data-menu-target="group-menu" aria-expanded="false">
+                <button class="menu-link sync-mode-control" id="group-toggle" type="button" data-menu-target="group-menu" aria-expanded="false">
                     <span class="fa-regular fa-object-group" aria-hidden="true"></span>
                     <span>Group By</span>
                 </button>
-                <button class="menu-link" id="view-toggle" type="button" data-menu-target="view-menu" aria-expanded="false">
+                <button class="menu-link sync-mode-control" id="view-toggle" type="button" data-menu-target="view-menu" aria-expanded="false">
                     <span class="fa-solid fa-magnifying-glass" aria-hidden="true"></span>
                     <span>View</span>
                 </button>
-                <button class="menu-link" id="time-toggle" type="button" data-menu-target="time-menu" aria-expanded="false">
+                <button class="menu-link sync-mode-control" id="time-toggle" type="button" data-menu-target="time-menu" aria-expanded="false">
                     <span class="fa-regular fa-clock" aria-hidden="true"></span>
                     <span>Time</span>
                 </button>
-                <button class="menu-link" id="gps-toggle" type="button" data-menu-target="gps-menu" aria-expanded="false">
+                <button class="menu-link sync-mode-control" id="gps-toggle" type="button" data-menu-target="gps-menu" aria-expanded="false">
                     <span class="fa-solid fa-map-location-dot" aria-hidden="true"></span>
                     <span>GPS</span>
                 </button>
-                <button type="button" class="sync-btn" id="apply-sync" disabled>
+                <button type="button" class="sync-btn sync-mode-control" id="apply-sync" disabled>
                     <span class="fa-solid fa-floppy-disk" aria-hidden="true"></span>
                     <span>Save</span>
                 </button>
@@ -33,6 +38,11 @@
             </div>
         </div>
         <div class="header-menus" id="header-menus">
+            <div class="header-dropdown header-dropdown-menu mode-menu" id="mode-menu" hidden>
+                <div class="settings-menu-title">Mode</div>
+                <button type="button" class="mode-menu-item" data-app-mode="sync">Sync</button>
+                <button type="button" class="mode-menu-item" data-app-mode="gps-log">GPS Log</button>
+            </div>
             <div class="header-dropdown header-dropdown-menu" id="scope-menu" hidden>
                 <div class="scope-menu" role="menu" aria-label="Scope">
                     <button type="button" class="scope-menu-item" data-scope-value="global" title="apply modifications to all images">
@@ -128,7 +138,7 @@
                     </div>
                 </div>
             </div>
-            <div class="header-panel header-work-panel" id="work-menu" hidden>
+            <div class="header-panel header-work-panel sync-mode-control" id="work-menu" hidden>
                 <div class="sync-col" id="time-panel" hidden>
                     <div class="time-tools-grid">
                         <fieldset class="sync-fieldset">
@@ -201,7 +211,7 @@
                     </fieldset>
                 </div>
             </div>
-            <div class="apply-results" id="apply-results" hidden>
+            <div class="apply-results sync-mode-control" id="apply-results" hidden>
                 <div class="apply-results-head">
                     <strong>Apply Results</strong>
                     <button type="button" class="dismiss-btn" id="dismiss-apply-results" aria-label="Dismiss results">
@@ -507,6 +517,17 @@
                     {{end}}
                 </div>
                 <div class="pane-header-actions">
+                    <div class="gps-log-pane-actions">
+                        <button type="button" class="directory-browser-gear" data-ref-gps-log-toggle aria-expanded="false" title="Reference actions" aria-label="Reference actions">
+                            <span class="fa-solid fa-gear" aria-hidden="true"></span>
+                        </button>
+                        <div class="directory-browser-menu gps-log-pane-menu" data-ref-gps-log-menu hidden>
+                            <strong class="gps-log-pane-menu-title">GPS Log</strong>
+                            <button type="button" class="gps-log-pane-menu-action" data-ref-gps-log-add disabled>Add selected (0)</button>
+                            <button type="button" class="gps-log-pane-menu-action" data-ref-gps-log-add-all>Add all</button>
+                            <span class="gps-log-pane-menu-status" data-ref-gps-log-status aria-live="polite"></span>
+                        </div>
+                    </div>
                     <a href="#" class="pane-header-action-link" data-pane-preview-download hidden title="Download original image" aria-label="Download original image">
                         <span class="fa-solid fa-download" aria-hidden="true"></span>
                     </a>
@@ -728,6 +749,55 @@
             </div>
             </div>
             {{end}}
+        </section>
+        <section class="gps-log-workspace" data-gps-log-workspace hidden>
+            <header class="gps-log-header">
+                <div>
+                    <h2>GPS Log <span class="gps-log-summary-meta">· <span data-gps-log-summary>Loading…</span></span></h2>
+                </div>
+            </header>
+            <div class="gps-log-status" data-gps-log-status aria-live="polite"></div>
+            <div class="gps-log-map" data-gps-log-map aria-label="GPS log map"></div>
+            <section class="gps-log-timeline-panel" aria-label="GPS log timeline">
+                <div class="gps-log-timeline-head">
+                    <span class="gps-log-mode-picker">
+                        <button type="button" class="gps-log-mode-toggle" data-gps-log-mode-toggle aria-expanded="false">
+                            <span data-gps-log-mode-label>Timeline</span>
+                            <span class="pane-title-caret" aria-hidden="true"></span>
+                        </button>
+                        <span class="gps-log-mode-menu" data-gps-log-mode-menu hidden>
+                            <button type="button" data-gps-log-mode="timeline">Timeline</button>
+                            <button type="button" data-gps-log-mode="rainbow">Rainbow</button>
+                            <button type="button" data-gps-log-mode="heatmap">Heatmap</button>
+                            <button type="button" data-gps-log-mode="playback">Playback</button>
+                        </span>
+                    </span>
+                    <span class="gps-log-playback-controls" data-gps-log-playback-controls hidden>
+                        <label class="gps-log-playback-window">
+                            <input type="text" value="1 day" data-gps-log-window placeholder="1 day" aria-label="Playback window">
+                        </label>
+                        <button type="button" class="gps-log-transport" data-gps-log-play aria-label="Play" title="Play">
+                            <span class="fa-solid fa-play" aria-hidden="true"></span>
+                        </button>
+                        <button type="button" class="gps-log-transport" data-gps-log-slower aria-label="Slower" title="Slower">
+                            <span class="fa-solid fa-backward" aria-hidden="true"></span>
+                        </button>
+                        <button type="button" class="gps-log-transport" data-gps-log-faster aria-label="Faster" title="Faster">
+                            <span class="fa-solid fa-forward" aria-hidden="true"></span>
+                        </button>
+                        <span class="gps-log-playback-speed" data-gps-log-speed>100 ms/window</span>
+                    </span>
+                    <span data-gps-log-range-label></span>
+                    <div class="gps-log-timeline-actions">
+                        <button type="button" class="sync-btn secondary" data-gps-log-zoom disabled>
+                            <span class="fa-solid fa-magnifying-glass" aria-hidden="true"></span>
+                            <span>Zoom to selection</span>
+                        </button>
+                        <button type="button" class="sync-btn secondary" data-gps-log-reset>Reset</button>
+                    </div>
+                </div>
+                <canvas class="gps-log-timeline" data-gps-log-timeline aria-label="Select and pan a GPS time range"></canvas>
+            </section>
         </section>
     </main>
 

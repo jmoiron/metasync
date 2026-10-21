@@ -285,6 +285,15 @@ type GeoLookupCandidate struct {
 	Type        string    `json:"type,omitempty"`
 }
 
+type GPSLogWriteRequest struct {
+	Entries []model.GPSLogEntry `json:"entries"`
+}
+
+type GPSLogWriteResponse struct {
+	Written int `json:"written"`
+	Total   int `json:"total"`
+}
+
 const (
 	defaultPreviewMaxBytes  int64 = 10 * 1024 * 1024
 	defaultPreviewMaxWidth        = 1600
@@ -628,6 +637,121 @@ func (h *Handlers) GeoLookup(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (h *Handlers) GPSLog(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		http.Error(w, "gps log storage unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		entries, err := h.store.GPSLogEntries()
+		if err != nil {
+			http.Error(w, "failed to read gps log", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(entries)
+	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, 64<<20)
+		var req GPSLogWriteRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON body", http.StatusBadRequest)
+			return
+		}
+		if len(req.Entries) == 0 {
+			http.Error(w, "no gps log entries provided", http.StatusBadRequest)
+			return
+		}
+		if len(req.Entries) > 100000 {
+			http.Error(w, "too many gps log entries", http.StatusRequestEntityTooLarge)
+			return
+		}
+
+		entries := make([]model.GPSLogEntry, 0, len(req.Entries))
+		entryIndexByPath := make(map[string]int, len(req.Entries))
+		for _, entry := range req.Entries {
+			validated, err := validateGPSLogEntry(entry)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if index, exists := entryIndexByPath[validated.SourcePath]; exists {
+				entries[index] = validated
+				continue
+			}
+			entryIndexByPath[validated.SourcePath] = len(entries)
+			entries = append(entries, validated)
+		}
+		if err := h.store.UpsertGPSLogEntries(entries); err != nil {
+			http.Error(w, "failed to write gps log", http.StatusInternalServerError)
+			return
+		}
+		total, err := h.store.GPSLogEntryCount()
+		if err != nil {
+			http.Error(w, "gps log saved but failed to read it", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(GPSLogWriteResponse{Written: len(entries), Total: total})
+	case http.MethodDelete:
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		var req struct {
+			SourcePath string `json:"source_path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON body", http.StatusBadRequest)
+			return
+		}
+		sourcePath := strings.TrimSpace(req.SourcePath)
+		if sourcePath == "" || !filepath.IsAbs(sourcePath) {
+			http.Error(w, "gps log source path must be absolute", http.StatusBadRequest)
+			return
+		}
+		deleted, err := h.store.DeleteGPSLogEntry(filepath.Clean(sourcePath))
+		if err != nil {
+			http.Error(w, "failed to delete gps log entry", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"deleted": deleted > 0})
+	default:
+		w.Header().Set("Allow", "GET, POST, DELETE")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func validateGPSLogEntry(entry model.GPSLogEntry) (model.GPSLogEntry, error) {
+	path := strings.TrimSpace(entry.SourcePath)
+	if path == "" {
+		return entry, fmt.Errorf("gps log source path is required")
+	}
+	if !filepath.IsAbs(path) {
+		return entry, fmt.Errorf("gps log source path must be absolute")
+	}
+	path = filepath.Clean(path)
+	if _, err := time.Parse("2006-01-02 15:04:05", entry.LocalDateTime); err != nil {
+		return entry, fmt.Errorf("invalid local datetime; expected YYYY-MM-DD HH:MM:SS")
+	}
+	if entry.UTCDateTime.IsZero() {
+		return entry, fmt.Errorf("gps log UTC datetime is required")
+	}
+	if entry.UTCDateTime.Year() < model.GPSLogMinimumYear {
+		return entry, fmt.Errorf("gps log UTC datetime must be in %d or later", model.GPSLogMinimumYear)
+	}
+	if entry.Latitude < -90 || entry.Latitude > 90 || entry.Longitude < -180 || entry.Longitude > 180 {
+		return entry, fmt.Errorf("gps log coordinates are out of range")
+	}
+	if entry.Offset != "" {
+		if _, err := time.Parse("-07:00", entry.Offset); err != nil {
+			return entry, fmt.Errorf("invalid timezone offset; expected +/-HH:MM")
+		}
+	}
+	entry.SourcePath = path
+	entry.UTCDateTime = entry.UTCDateTime.UTC()
+	return entry, nil
 }
 
 func (h *Handlers) ProgressWS(w http.ResponseWriter, r *http.Request) {

@@ -4,7 +4,7 @@ LESSC ?= lessc
 NODE ?= node
 
 STYLE_LESS := style.less
-STYLE_DEPS := $(STYLE_LESS) theme.less figtree.less directory-browser.less
+STYLE_DEPS := $(STYLE_LESS) theme.less figtree.less directory-browser.less gps-log.less
 STYLE_CSS := style.css
 FA_DIR := fa
 
