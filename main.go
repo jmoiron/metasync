@@ -25,6 +25,7 @@ type options struct {
 	Workers        int
 	BatchSize      int
 	PreviewMaxSize int64
+	ExifReader     string
 }
 
 func main() {
@@ -49,6 +50,7 @@ func main() {
 		Workers:         opts.Workers,
 		BatchSize:       opts.BatchSize,
 		PreviewMaxSize:  opts.PreviewMaxSize,
+		ExifReader:      opts.ExifReader,
 	})
 	if err != nil {
 		slog.Error("initializing app", "err", err)
@@ -67,6 +69,7 @@ func main() {
 		"workers", opts.Workers,
 		"batch_size", opts.BatchSize,
 		"preview_max_size", opts.PreviewMaxSize,
+		"exif_reader", opts.ExifReader,
 	)
 
 	if !opts.OpenBrowser {
@@ -107,6 +110,7 @@ func parseFlags() options {
 	pflag.BoolVar(&opts.RefreshMeta, "refresh-metadata", false, "re-extract photo metadata instead of reading cached metadata")
 	pflag.IntVar(&opts.Workers, "workers", 4, "number of workers for metadata extraction and thumbnail generation")
 	pflag.IntVar(&opts.BatchSize, "batch-size", 4, "number of files per EXIF extraction batch")
+	pflag.StringVar(&opts.ExifReader, "exif-reader", "etruscan", "EXIF reader: etruscan (falls back to go-exiftool on errors) or go-exiftool")
 	var previewMaxSize string
 	pflag.StringVar(&previewMaxSize, "preview-max-size", "10m", "max original image size before serving a resized preview, for example 1m or 10m")
 	pflag.Parse()

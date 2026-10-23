@@ -39,6 +39,7 @@ type Config struct {
 	Workers         int
 	BatchSize       int
 	PreviewMaxSize  int64
+	ExifReader      string
 }
 
 type App struct {
@@ -84,6 +85,10 @@ func New(cfg Config) (*App, error) {
 	}
 
 	exif.Configure(cfg.Workers, cfg.BatchSize)
+	if err := exif.ConfigureReader(cfg.ExifReader); err != nil {
+		st.Close()
+		return nil, err
+	}
 	scan.Configure(cfg.Workers)
 
 	initial := preload(st, pageCfg)

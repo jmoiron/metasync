@@ -1,6 +1,6 @@
 module github.com/jmoiron/metasync
 
-go 1.26.1
+go 1.27.3
 
 require (
 	github.com/Lionparcel/timezonemapper v1.0.1
@@ -10,6 +10,7 @@ require (
 	github.com/jmoiron/metasync/nominatim v0.0.0
 	github.com/jmoiron/monet v0.0.0
 	github.com/jmoiron/sqlx v1.2.0
+	github.com/kolesa-team/goexiv v0.0.0
 	github.com/mattn/go-sqlite3 v1.14.20
 	github.com/spf13/pflag v1.0.5
 	golang.org/x/image v0.47.0
@@ -19,11 +20,19 @@ require (
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/go-sprout/sprout v0.6.0 // indirect
+	github.com/jmoiron/etruscan v0.0.0
 	github.com/spf13/cast v1.6.0 // indirect
+	github.com/tetratelabs/wazero v1.11.0 // indirect
+	github.com/yashikota/exiftool-go v1.1.0 // indirect
 	github.com/yuin/goldmark v1.8.6 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )
 
 replace github.com/jmoiron/monet => ../monet
 
 replace github.com/jmoiron/metasync/nominatim => ./nominatim
+
+replace github.com/kolesa-team/goexiv => ./exif/kolesa-team/goexiv
+
+replace github.com/jmoiron/etruscan => ./exif/etruscan

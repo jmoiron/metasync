@@ -1,0 +1,3 @@
+[submodule "exif/etruscan"]
+	path = exif/etruscan
+	url = git@github.com:jmoiron/etruscan.git

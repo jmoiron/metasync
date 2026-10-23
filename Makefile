@@ -18,8 +18,15 @@ icons:
 js-test:
 	$(MAKE) -C app/assets/static test
 
+.PHONY: etruscan-init etruscan
+etruscan-init:
+	git submodule update --init --recursive exif/etruscan
+
+etruscan: etruscan-init
+	$(MAKE) -C exif/etruscan
+
 .PHONY: build
-build: css
+build: css etruscan
 	$(GO) build -o metasync .
 
 .PHONY: install
@@ -27,7 +34,7 @@ install: build
 	$(GO) install
 
 .PHONY: test
-test: css js-test
+test: css js-test etruscan
 	$(GO) test ./...
 
 .PHONY: fmt

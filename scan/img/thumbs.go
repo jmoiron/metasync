@@ -17,6 +17,7 @@ import (
 	"time"
 
 	exiftool "github.com/barasher/go-exiftool"
+	"github.com/jmoiron/etruscan"
 	"github.com/jmoiron/metasync/model"
 	"github.com/jmoiron/metasync/progress"
 	"github.com/jmoiron/metasync/spool"
@@ -210,7 +211,13 @@ func logThumbProgress(start time.Time, completed, total int) {
 }
 
 func createThumbnailWithExiftool(et *exiftool.Exiftool, job thumbJob) error {
-	ok, err := thumbnailEmbeddedWithExiftool(et, job.src, job.dst)
+	ok, err := thumbnailEmbeddedWithEtruscan(job.src, job.dst)
+	if err != nil || !ok {
+		if err != nil {
+			slog.Warn("etruscan embedded thumbnail extraction failed; falling back to go-exiftool", "path", job.src, "err", err)
+		}
+		ok, err = thumbnailEmbeddedWithExiftool(et, job.src, job.dst)
+	}
 	if err != nil {
 		return fmt.Errorf("create thumbnail %s: %w", job.src, err)
 	}
@@ -221,6 +228,55 @@ func createThumbnailWithExiftool(et *exiftool.Exiftool, job thumbJob) error {
 		return fmt.Errorf("create thumbnail %s: %w", job.src, err)
 	}
 	return nil
+}
+
+func thumbnailEmbeddedWithEtruscan(srcPath, dstPath string) (bool, error) {
+	metadata, err := etruscan.Read(srcPath, nil)
+	if err != nil {
+		return false, err
+	}
+	orientation := 0
+	if tag, ok := metadata.Get("Orientation"); ok {
+		if n, ok := tag.Int(); ok {
+			orientation = int(n)
+		} else if n, ok := orientationValueFromString(tag.Print); ok {
+			orientation = n
+		}
+	}
+
+	for _, name := range []string{"ThumbnailImage", "PreviewImage", "JpgFromRaw"} {
+		tag, ok := metadata.Get(name)
+		if !ok {
+			continue
+		}
+		buf, err := tag.Bytes()
+		if err != nil || len(buf) == 0 {
+			continue
+		}
+		if _, _, err := image.DecodeConfig(bytes.NewReader(buf)); err != nil {
+			continue
+		}
+		if orientation >= 2 && orientation <= 8 {
+			buf, err = withJPEGOrientation(buf, orientation)
+			if err != nil {
+				return false, err
+			}
+		}
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
+			return false, err
+		}
+		if err := os.WriteFile(dstPath, buf, 0o644); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func orientationValueFromString(value string) (int, bool) {
+	item := exiftool.EmptyFileMetadata()
+	item.Fields["Orientation"] = value
+	return orientationValue(item)
 }
 
 func newBinaryExiftool() (*exiftool.Exiftool, error) {

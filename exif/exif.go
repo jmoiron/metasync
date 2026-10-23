@@ -14,6 +14,7 @@ import (
 	"time"
 
 	exiftool "github.com/barasher/go-exiftool"
+	"github.com/jmoiron/etruscan"
 
 	"github.com/jmoiron/metasync/model"
 	"github.com/jmoiron/metasync/progress"
@@ -32,6 +33,7 @@ const (
 var (
 	extractChunkSize = defaultExtractChunkSize
 	extractWorkers   = defaultExtractWorkers
+	extractReader    = "etruscan"
 )
 
 type extractJob struct {
@@ -69,6 +71,21 @@ func Configure(workers, batchSize int) {
 		extractChunkSize = batchSize
 	} else {
 		extractChunkSize = defaultExtractChunkSize
+	}
+}
+
+// ConfigureReader selects the preferred metadata reader. Etruscan mode falls
+// back to go-exiftool for individual files that etruscan cannot read.
+func ConfigureReader(reader string) error {
+	if reader == "" {
+		reader = "etruscan"
+	}
+	switch reader {
+	case "etruscan", "go-exiftool":
+		extractReader = reader
+		return nil
+	default:
+		return fmt.Errorf("unknown EXIF reader %q (choose etruscan or go-exiftool)", reader)
 	}
 }
 
@@ -129,7 +146,7 @@ func (e *Extractor) extractSingle(jobs []extractJob, total int, reporter progres
 	start := time.Now()
 	done := 0
 	for _, job := range jobs {
-		mergeExtractResult(result, extractChunkWithExiftool(e.et, job.paths))
+		mergeExtractResult(result, extractChunk(e.et, job.paths))
 		done += len(job.paths)
 		if reporter != nil {
 			reporter.Set(done)
@@ -157,7 +174,7 @@ func (e *Extractor) extractParallel(jobs []extractJob, total int, reporter progr
 		defer et.Close()
 
 		for job := range jobch {
-			progress <- extractResult{data: extractChunkWithExiftool(et, job.paths)}
+			progress <- extractResult{data: extractChunk(et, job.paths)}
 		}
 	})
 
@@ -184,6 +201,41 @@ func (e *Extractor) extractParallel(jobs []extractJob, total int, reporter progr
 		slog.Warn("parallel exif extraction encountered errors", "err", err)
 	}
 	return result
+}
+
+func extractChunk(et *exiftool.Exiftool, paths []string) map[string]model.ExifData {
+	if extractReader == "go-exiftool" {
+		return extractChunkWithExiftool(et, paths)
+	}
+
+	result := make(map[string]model.ExifData, len(paths))
+	for _, path := range paths {
+		metadata, err := etruscan.Read(path, nil)
+		if err == nil {
+			result[path] = normalizeEtruscan(metadata)
+			continue
+		}
+
+		slog.Warn("etruscan metadata extraction failed; falling back to go-exiftool", "path", path, "err", err)
+		fallback := extractChunkWithExiftool(et, []string{path})
+		result[path] = fallback[path]
+	}
+	return result
+}
+
+func normalizeEtruscan(metadata *etruscan.Metadata) model.ExifData {
+	file := exiftool.EmptyFileMetadata()
+	for _, tag := range metadata.Tags {
+		if _, exists := file.Fields[tag.Name]; exists {
+			continue
+		}
+		value := tag.Raw
+		if value == "" {
+			value = tag.Print
+		}
+		file.Fields[tag.Name] = value
+	}
+	return normalize(file)
 }
 
 func extractChunkWithExiftool(et *exiftool.Exiftool, paths []string) map[string]model.ExifData {
@@ -297,6 +349,25 @@ func (e *Extractor) Write(path string, req WriteRequest) error {
 }
 
 func Full(ctx context.Context, path string) (map[string]any, error) {
+	if extractReader == "etruscan" {
+		metadata, err := etruscan.Read(path, &etruscan.Options{Duplicates: true, StructOutput: true})
+		if err == nil {
+			data := make(map[string]any, len(metadata.Tags))
+			for _, tag := range metadata.Tags {
+				value := tag.Value()
+				if value == nil {
+					value = tag.Print
+				}
+				data[tag.Group1+":"+tag.Name] = value
+			}
+			return data, nil
+		}
+		slog.Warn("etruscan full metadata extraction failed; falling back to exiftool", "path", path, "err", err)
+	}
+	return fullWithExiftool(ctx, path)
+}
+
+func fullWithExiftool(ctx context.Context, path string) (map[string]any, error) {
 	cmd := exec.CommandContext(ctx, "exiftool", "-j", "-a", "-G1", "-struct", path)
 	output, err := cmd.Output()
 	if err != nil {
